@@ -90,7 +90,10 @@
                     <button class="filter-btn" data-filter="available">المتوفرة</button>
                     <button class="filter-btn" data-filter="outofstock">المنتهية</button>
                 </div>
-                <div class="items-container" id="itemsList"></div>
+                <div class="items-scroll-wrapper">
+                    <div class="items-container" id="itemsList"></div>
+                    <button class="scroll-top-btn" id="inventoryScrollTopBtn" title="العودة للأعلى"><i class="fas fa-chevron-up"></i></button>
+                </div>
             </div>
 
             <div class="section-panel" id="section-addItem">
@@ -164,15 +167,15 @@
             </div>
 
             <div class="section-panel" id="section-comparison">
-                <div class="filter-row">
-                    <label style="font-weight:700;">الفترة الأولى:</label>
-                    <div id="compStart1Picker" class="wheel-picker" style="display:inline-block;vertical-align:middle;margin-right:6px;"></div>
-                    <span style="margin:0 6px;">إلى</span>
-                    <div id="compEnd1Picker" class="wheel-picker" style="display:inline-block;vertical-align:middle;margin-right:12px;"></div>
-                    <label style="font-weight:700;margin-right:16px;">الفترة الثانية:</label>
-                    <div id="compStart2Picker" class="wheel-picker" style="display:inline-block;vertical-align:middle;margin-right:6px;"></div>
-                    <span style="margin:0 6px;">إلى</span>
-                    <div id="compEnd2Picker" class="wheel-picker" style="display:inline-block;vertical-align:middle;margin-right:6px;"></div>
+                <div class="filter-row" style="align-items:center;flex-wrap:wrap;gap:10px;">
+                    <label style="font-weight:700;white-space:nowrap;">الفترة الأولى:</label>
+                    <input type="text" readonly id="compStart1Val" class="date-input" placeholder="YYYY-MM-DD" style="max-width:150px;padding:9px 12px;border-radius:30px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Cairo',sans-serif;">
+                    <span style="margin:0 6px;white-space:nowrap;">إلى</span>
+                    <input type="text" readonly id="compEnd1Val" class="date-input" placeholder="YYYY-MM-DD" style="max-width:150px;padding:9px 12px;border-radius:30px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Cairo',sans-serif;">
+                    <label style="font-weight:700;margin-right:16px;white-space:nowrap;">الفترة الثانية:</label>
+                    <input type="text" readonly id="compStart2Val" class="date-input" placeholder="YYYY-MM-DD" style="max-width:150px;padding:9px 12px;border-radius:30px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Cairo',sans-serif;">
+                    <span style="margin:0 6px;white-space:nowrap;">إلى</span>
+                    <input type="text" readonly id="compEnd2Val" class="date-input" placeholder="YYYY-MM-DD" style="max-width:150px;padding:9px 12px;border-radius:30px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Cairo',sans-serif;">
                     <button class="btn-sm" id="compareBtn">مقارنة</button>
                 </div>
                 <div class="stats-grid" id="comparisonStats"></div>
@@ -187,7 +190,7 @@
             <div class="section-panel" id="section-expenses">
                 <div class="filter-row">
                     <button class="btn-sm" id="addExpenseBtn">إضافة مصروف</button>
-                    <input type="date" id="expenseFilterDate" style="max-width:150px;padding:9px 14px;border-radius:30px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Cairo',sans-serif;">
+                    <input type="text" readonly id="expenseFilterDate" class="date-input" placeholder="YYYY-MM-DD" style="max-width:150px;padding:9px 14px;border-radius:30px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Cairo',sans-serif;">
                     <button class="btn-sm outline" id="applyExpenseFilter">تصفية</button>
                 </div>
                 <div class="table-container">
@@ -306,7 +309,7 @@
     <div class="modal-overlay" id="expenseModal">
         <div class="modal-dialog"><button class="modal-close" onclick="closeModalById('expenseModal')">&times;</button><h3>إضافة مصروف</h3>
             <div style="display:flex;flex-direction:column;gap:12px;">
-                <input type="date" id="expenseDate" style="padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;">
+                <input type="text" readonly id="expenseDate" class="date-input" placeholder="YYYY-MM-DD" style="padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;">
                 <input type="number" id="expenseAmount" placeholder="المبلغ" style="padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;">
                 <input type="text" id="expenseDesc" placeholder="الوصف" style="padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;">
                 <button class="btn-sm" id="saveExpenseBtn">حفظ</button>
@@ -352,8 +355,8 @@
                 <div class="form-group"><label>زوايا دائرية</label><div class="color-picker-row"><input type="range" id="sliderEditBorderRadius" min="0" max="40" value="16" step="2"><span id="sliderBorderRadiusVal">16px</span></div></div>
                 <div class="form-group"><label>الظل</label><select id="sliderEditShadow" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"><option value="none">بدون</option><option value="0 2px 8px rgba(0,0,0,0.08)">خفيف</option><option value="0 8px 24px rgba(0,0,0,0.12)" selected>متوسط</option><option value="0 16px 40px rgba(0,0,0,0.18)">قوي</option></select></div>
                 <div class="form-group"><label>مدة العرض (مللي) - 0 للإعداد العام</label><input type="number" id="sliderEditAutoSlideDelay" value="0" min="0" step="500" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"></div>
-                <div class="form-group"><label>تاريخ البداية</label><input type="datetime-local" id="sliderEditStartDate" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"></div>
-                <div class="form-group"><label>تاريخ النهاية</label><input type="datetime-local" id="sliderEditEndDate" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"></div>
+                <div class="form-group"><label>تاريخ البداية</label><input type="text" readonly id="sliderEditStartDate" class="date-input" placeholder="YYYY-MM-DD HH:MM" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"></div>
+                <div class="form-group"><label>تاريخ النهاية</label><input type="text" readonly id="sliderEditEndDate" class="date-input" placeholder="YYYY-MM-DD HH:MM" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"></div>
                 <div class="form-group"><label>الأولوية</label><input type="number" id="sliderEditPriority" value="0" min="0" max="100" style="width:100%;padding:10px;border-radius:14px;border:1px solid var(--border);font-family:'Cairo',sans-serif;"></div>
             </div>
             <div class="live-preview-card" id="sliderLivePreview"><span class="preview-label">معاينة</span><div>املأ الحقول...</div></div>
@@ -367,6 +370,17 @@
             <input type="text" id="sliderIconSearchInput" placeholder="ابحث..." style="width:100%;padding:10px;border-radius:30px;border:1px solid var(--border);font-family:'Cairo',sans-serif;margin-bottom:12px;">
             <div class="icons-grid" id="sliderIconsGrid"></div>
             <button class="btn-sm outline" style="margin-top:12px;width:100%;" id="closeSliderIconPicker">إغلاق</button>
+        </div>
+    </div>
+
+    <div class="date-picker-overlay hidden" id="datePickerOverlay">
+        <div class="date-picker-dialog">
+            <div class="date-picker-fields">
+                <div class="date-picker-field"><input id="datePickerDay" class="date-picker-field-input" type="text" placeholder="اليوم" maxlength="2" inputmode="numeric"></div>
+                <div class="date-picker-field"><input id="datePickerMonth" class="date-picker-field-input" type="text" placeholder="الشهر" maxlength="2" inputmode="numeric"></div>
+                <div class="date-picker-field"><input id="datePickerYear" class="date-picker-field-input" type="text" placeholder="السنة" maxlength="4" inputmode="numeric"></div>
+            </div>
+            <button class="date-picker-confirm-btn" id="datePickerConfirmBtn">تأكيد</button>
         </div>
     </div>
 
