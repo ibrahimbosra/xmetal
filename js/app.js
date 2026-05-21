@@ -50,6 +50,7 @@ let sliderSearchQuery = '';
 let globalAutoSlideDelay = 5000;
 let currentInventoryFilter = 'all';
 let hasFetchedSales = false;
+let comparisonManualRows = null;
 window._cachedStats = { allTimeProfit: 0 };
 window._targetAlertShown = false;
 const CACHE_TTL = 3600000;
@@ -103,6 +104,31 @@ function getFirebaseErrorMessage(e) {
         'unavailable': 'الخدمة غير متاحة مؤقتاً، حاول لاحقاً'
     };
     return map[e.code] || e.message || 'حدث خطأ غير متوقع';
+}
+function parseDateString(value, endOfDay) {
+    if (!value || !String(value).trim()) return null;
+    var text = String(value).trim();
+    var date = null;
+    // Prefer parsing YYYY-MM-DD as local date to avoid UTC shift
+    var ymdMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (ymdMatch) {
+        var yy = parseInt(ymdMatch[1], 10);
+        var mm = parseInt(ymdMatch[2], 10);
+        var dd = parseInt(ymdMatch[3], 10);
+        date = new Date(yy, mm - 1, dd, 0, 0, 0, 0);
+    } else {
+        date = new Date(text);
+        if (isNaN(date.getTime())) {
+            var parts = text.split(/[-\/\.\s:]+/).map(function(p) { return parseInt(p, 10); });
+            if (parts.length >= 3 && parts[0] && parts[1] && parts[2]) {
+                date = new Date(parts[0], parts[1] - 1, parts[2], parts[3] || 0, parts[4] || 0);
+            }
+        }
+    }
+    if (isNaN(date.getTime())) return null;
+    if (endOfDay) { date.setHours(23, 59, 59, 999); }
+    else { date.setHours(0, 0, 0, 0); }
+    return date.getTime();
 }
 function showFirestoreError(e, context) {
     console.warn(context || 'Firestore', e);
@@ -493,7 +519,9 @@ function getActivityFiltersRowHTML() {
         '<select id="afEntity" onchange="updateActivityFilter(\'entity\',this.value)">' + buildActivityFilterSelect(options.entities, sp.entity) + '</select>' +
         '<input type="text" id="afSearch" placeholder="' + getActivitySearchPlaceholder() + '" value="' + escHtml(sp.searchTerm) + '" oninput="debouncedActivitySearchUpdate(this.value)" style="max-width:220px;">' +
         '<input type="text" id="afUser" placeholder="المستخدم" value="' + escHtml(sp.user) + '" onchange="updateActivityFilter(\'user\',this.value)" style="max-width:150px;">' +
-        (sp.period === 'custom' ? '<div class="wheel-range"><div id="afCustomStartPicker" class="wheel-picker"></div><span style="font-weight:700;color:var(--text3);margin:0 8px;">إلى</span><div id="afCustomEndPicker" class="wheel-picker"></div></div>' : '') +
+        (sp.period === 'custom' ? '<input type="text" class="date-input" readonly id="afCustomStart" placeholder="YYYY-MM-DD" value="' + (sp.customStart ? new Date(sp.customStart).toISOString().split('T')[0] : '') + '" onchange="updateActivityFilter(\'customStart\',parseDateString(this.value,false))" style="max-width:140px;margin-right:8px;">' +
+            '<span style="font-weight:700;color:var(--text3);margin:0 8px;">إلى</span>' +
+            '<input type="text" class="date-input" readonly id="afCustomEnd" placeholder="YYYY-MM-DD" value="' + (sp.customEnd ? new Date(sp.customEnd).toISOString().split('T')[0] : '') + '" onchange="updateActivityFilter(\'customEnd\',parseDateString(this.value,true))" style="max-width:140px;">' : '') +
         '<button class="btn-sm outline" onclick="resetActivityFilters()">مسح الفلاتر</button>';
 }
 
@@ -619,11 +647,6 @@ function getActivityFilterDateValueOrEmpty(ts) {
 function buildActivityFilterRow() {
     if (!document.getElementById('activityFilterRow')) return;
     document.getElementById('activityFilterRow').innerHTML = getActivityFiltersRowHTML();
-    var sp = activityFilterParams;
-    if (sp.period === 'custom') {
-        // initialize wheel pickers after DOM insertion
-        setTimeout(function() { initActivityWheelPickers(sp.customStart, sp.customEnd); }, 50);
-    }
 }
 
 // Wheel picker implementation for Day / Month / Year spinner
@@ -761,6 +784,167 @@ function setWheelToDate(container, date) {
         if (item) item.scrollIntoView({ block: 'center' });
     }
     scrollToValue(cols[0], d); scrollToValue(cols[1], m); scrollToValue(cols[2], y);
+}
+
+var datePickerState = {
+    activeInput: null,
+    overlay: null,
+    dayInput: null,
+    monthInput: null,
+    yearInput: null
+};
+
+function initDatePickerPopup() {
+    var overlay = document.getElementById('datePickerOverlay');
+    if (!overlay) return;
+    datePickerState.overlay = overlay;
+    datePickerState.dayInput = document.getElementById('datePickerDay');
+    datePickerState.monthInput = document.getElementById('datePickerMonth');
+    datePickerState.yearInput = document.getElementById('datePickerYear');
+
+    // Auto-navigation and input sanitation for day/month/year fields
+    function sanitizeDigits(el, maxLen) {
+        if (!el) return;
+        var v = String(el.value || '').replace(/[^0-9]/g, '');
+        if (v.length > maxLen) v = v.slice(0, maxLen);
+        if (el.value !== v) el.value = v;
+    }
+
+    if (datePickerState.dayInput) {
+        datePickerState.dayInput.addEventListener('input', function() {
+            sanitizeDigits(this, 2);
+            if (this.value.length >= 2) {
+                datePickerState.monthInput && datePickerState.monthInput.focus();
+            }
+        });
+        datePickerState.dayInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                datePickerState.monthInput && datePickerState.monthInput.focus();
+            }
+        });
+    }
+    if (datePickerState.monthInput) {
+        datePickerState.monthInput.addEventListener('input', function() {
+            sanitizeDigits(this, 2);
+            if (this.value.length >= 2) {
+                datePickerState.yearInput && datePickerState.yearInput.focus();
+            }
+        });
+        datePickerState.monthInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Backspace' && (!this.value || this.value.length === 0)) {
+                datePickerState.dayInput && datePickerState.dayInput.focus();
+            }
+            if (e.key === 'Enter') {
+                datePickerState.yearInput && datePickerState.yearInput.focus();
+            }
+        });
+    }
+    if (datePickerState.yearInput) {
+        datePickerState.yearInput.addEventListener('input', function() {
+            sanitizeDigits(this, 4);
+            // auto-confirm when full year entered
+            if (this.value.length >= 4) {
+                var sel = getPickerDate();
+                if (sel && datePickerState.activeInput) {
+                    datePickerState.activeInput.value = formatDateInputValue(sel);
+                    datePickerState.activeInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    closeDatePicker();
+                }
+            }
+        });
+        datePickerState.yearInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Backspace' && (!this.value || this.value.length === 0)) {
+                datePickerState.monthInput && datePickerState.monthInput.focus();
+            }
+            if (e.key === 'Enter') {
+                var sel = getPickerDate();
+                if (sel && datePickerState.activeInput) {
+                    datePickerState.activeInput.value = formatDateInputValue(sel);
+                    datePickerState.activeInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    closeDatePicker();
+                }
+            }
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        var dateInput = e.target.closest('.date-input');
+        if (!dateInput) return;
+        if (datePickerState.overlay.contains(e.target)) return;
+        e.preventDefault();
+        openDatePicker(dateInput);
+    });
+
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+            closeDatePicker();
+        }
+    });
+
+    var confirmBtn = document.getElementById('datePickerConfirmBtn');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', function() {
+            if (!datePickerState.activeInput) return;
+            var selected = getPickerDate();
+            if (!selected) {
+                showToast('الرجاء إدخال تاريخ صالح', 'error');
+                return;
+            }
+            datePickerState.activeInput.value = formatDateInputValue(selected);
+            datePickerState.activeInput.dispatchEvent(new Event('change', { bubbles: true }));
+            closeDatePicker();
+        });
+    }
+}
+
+function openDatePicker(input) {
+    if (!datePickerState.overlay) return;
+    datePickerState.activeInput = input;
+    var parsed = parseDateString(input.value, false);
+    if (parsed) {
+        var date = new Date(parsed);
+        datePickerState.dayInput.value = padNumber(date.getDate());
+        datePickerState.monthInput.value = padNumber(date.getMonth() + 1);
+        datePickerState.yearInput.value = date.getFullYear();
+    } else {
+        datePickerState.dayInput.value = '';
+        datePickerState.monthInput.value = '';
+        datePickerState.yearInput.value = '';
+    }
+    datePickerState.overlay.classList.remove('hidden');
+    datePickerState.dayInput.focus();
+}
+
+function closeDatePicker() {
+    if (!datePickerState.overlay) return;
+    datePickerState.overlay.classList.add('hidden');
+    datePickerState.activeInput = null;
+}
+
+function getPickerDate() {
+    if (!datePickerState.dayInput || !datePickerState.monthInput || !datePickerState.yearInput) return null;
+    var day = parseInt(datePickerState.dayInput.value, 10);
+    var month = parseInt(datePickerState.monthInput.value, 10);
+    var year = parseInt(datePickerState.yearInput.value, 10);
+    if (!year || !month || !day) return null;
+    if (month < 1 || month > 12) return null;
+    var maxDay = new Date(year, month, 0).getDate();
+    if (day < 1 || day > maxDay) return null;
+    var selected = new Date(year, month - 1, day);
+    if (isNaN(selected.getTime())) return null;
+    selected.setHours(0, 0, 0, 0);
+    return selected;
+}
+
+function padNumber(value) {
+    return value < 10 ? '0' + value : String(value);
+}
+
+function formatDateInputValue(date) {
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, '0');
+    var d = String(date.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
 }
 
 function getActivityPageSummary(items) {
@@ -1131,6 +1315,7 @@ async function initApp() {
     document.getElementById('currencyLabel').textContent = displaySecondaryCurrency ? currencySettings
         .secondaryCurrencySymbol : '$';
     renderCurrentSection();
+    initDatePickerPopup();
     document.getElementById('lastUpdatedLabel').textContent = 'آخر تحديث: ' + fmtDateTime(Date.now());
     attachRealtimeListeners();
 }
@@ -1851,9 +2036,22 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
         await logActivity('create', 'item', newId, 'إضافة منتج: ' + name + ' - ' + buildProductDetailsSummary(newItem), { product: newItem });
         allItems.push(newItem);
         showToast('تمت الإضافة');
+        prepareAddItemForm();
+        if (document.getElementById('section-addItem').scrollTo) {
+            document.getElementById('section-addItem').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        if (document.getElementById('contentArea').scrollTo) {
+            document.getElementById('contentArea').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        document.getElementById('itemName').focus();
+        currentSection = 'addItem';
+        document.querySelectorAll('.section-panel').forEach(function(p) { p.classList.remove('active'); });
+        document.getElementById('section-addItem').classList.add('active');
     }
-    currentSection = 'inventory';
-    renderCurrentSection();
+    if (isEditingItem) {
+        currentSection = 'inventory';
+        renderCurrentSection();
+    }
 });
 
 function openSellModal(itemId) {
@@ -1969,6 +2167,16 @@ document.querySelectorAll('#inventoryFilterBar .filter-btn').forEach(function(bt
         renderInventory();
     });
 });
+var inventoryItemsList = document.getElementById('itemsList');
+var inventoryScrollTopBtn = document.getElementById('inventoryScrollTopBtn');
+if (inventoryItemsList && inventoryScrollTopBtn) {
+    inventoryItemsList.addEventListener('scroll', function() {
+        inventoryScrollTopBtn.classList.toggle('show', inventoryItemsList.scrollTop > 180);
+    });
+    inventoryScrollTopBtn.addEventListener('click', function() {
+        inventoryItemsList.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+}
 
 async function fetchSalesPage() {
     var sp = salesFilterParams;
@@ -2075,11 +2283,11 @@ function renderSalesFilterRow() {
             '>آخر 7 أيام</option><option value="30days" ' + (sp.period === '30days' ? 'selected' : '') +
             '>آخر 30 يوم</option><option value="90days" ' + (sp.period === '90days' ? 'selected' : '') +
             '>آخر 90 يوم</option><option value="custom" ' + (sp.period === 'custom' ? 'selected' : '') +
-            '>مخصص</option></select>' + (sp.period === 'custom' ? '<input type="date" id="sfCustomStart" value="' + (sp
+            '>مخصص</option></select>' + (sp.period === 'custom' ? '<input type="text" class="date-input" readonly id="sfCustomStart" placeholder="YYYY-MM-DD" value="' + (sp
                 .customStart ? new Date(sp.customStart).toISOString().split('T')[0] : '') +
-            '" onchange="updateSalesFilter(\'customStart\',new Date(this.value+\'T00:00:00\').getTime())"><span>إلى</span><input type="date" id="sfCustomEnd" value="' +
+            '" onchange="updateSalesFilter(\'customStart\',parseDateString(this.value,false))"><span>إلى</span><input type="text" class="date-input" readonly id="sfCustomEnd" placeholder="YYYY-MM-DD" value="' +
             (sp.customEnd ? new Date(sp.customEnd).toISOString().split('T')[0] : '') +
-            '" onchange="updateSalesFilter(\'customEnd\',new Date(this.value+\'T23:59:59\').getTime()+86399999)">' :
+            '" onchange="updateSalesFilter(\'customEnd\',parseDateString(this.value,true))">' :
                 '') +
         '<input type="text" id="sfSearch" placeholder="🔍 بحث باسم المنتج" value="' + escHtml(sp.searchTerm) +
         '" oninput="debouncedSearchUpdate(this.value)" style="max-width:200px;">' +
@@ -2341,25 +2549,78 @@ function renderProfitAnalysis() {
     });
 }
 
+function getComparisonDiffText(revenueDiff, profitDiff) {
+    function fmtDiff(name, value) {
+        if (value > 0) return name + ': <span class="profit-positive">+' + formatMoney(value) + '</span>';
+        if (value < 0) return name + ': <span class="profit-negative">-' + formatMoney(Math.abs(value)) + '</span>';
+        return name + ': <span style="color:var(--text3);">0</span>';
+    }
+    return '<span class="comparison-diff-text">' + fmtDiff('إيرادات', revenueDiff) + ' | ' + fmtDiff('ربح', profitDiff) + '</span>';
+}
+
+function getComparisonRowDiff(current, previous) {
+    if (!previous) return '--';
+    var revenueDiff = current.revenue - previous.revenue;
+    var profitDiff = current.netProfit - previous.netProfit;
+    return getComparisonDiffText(revenueDiff, profitDiff);
+}
+
 function renderComparison() {
+    var latestSaleTs = allSales.reduce(function(max, s) { return Math.max(max, s.timestamp || 0); }, 0);
+    var currentDate = new Date();
+    var year = currentDate.getFullYear();
+    var lastMonthIndex = currentDate.getMonth();
+    if (latestSaleTs) {
+        var latestSaleDate = new Date(latestSaleTs);
+        year = latestSaleDate.getFullYear();
+        lastMonthIndex = latestSaleDate.getMonth();
+    }
+    var monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    var rows = '';
+    var prevMonth = null;
+    for (var i = 0; i <= lastMonthIndex; i++) {
+        var start = new Date(year, i, 1).getTime();
+        var end = new Date(year, i + 1, 1).getTime();
+        var monthSales = allSales.filter(function(s) { return s.timestamp >= start && s.timestamp < end; });
+        var revenue = monthSales.reduce(function(acc, x) { return acc + (x.totalAmount || 0); }, 0);
+        var salesCount = monthSales.length;
+        var expenses = getExpensesSum(start, end);
+        var profit = monthSales.reduce(function(acc, x) { return acc + (x.profit || 0); }, 0);
+        var netProfit = profit - expenses;
+        var profitMargin = revenue !== 0 ? netProfit / revenue * 100 : 0;
+        var rowClass = i === lastMonthIndex ? ' class="comparison-last-month"' : '';
+        rows += '<tr' + rowClass + '>' +
+            '<td>' + monthNames[i] + '</td>' +
+            '<td>' + salesCount + '</td>' +
+            '<td>' + formatMoney(revenue) + '</td>' +
+            '<td>' + formatMoney(expenses) + '</td>' +
+            '<td>' + formatMoney(netProfit) + '</td>' +
+            '<td>' + fmt(profitMargin) + '%</td>' +
+            '<td style="white-space:normal;text-align:left;">' + getComparisonRowDiff({ revenue: revenue, netProfit: netProfit }, prevMonth) + '</td>' +
+            '</tr>';
+        prevMonth = { revenue: revenue, netProfit: netProfit };
+    }
     document.getElementById('comparisonStats').innerHTML =
-        '<div style="color:var(--text3);padding:20px;text-align:center;">اختر فترتين واضغط "مقارنة"</div>';
+        '<div class="table-container"><div class="table-header"><h3>مقارنة من بداية السنة حتى آخر شهر فيه عملية بيع</h3></div>' +
+        '<div class="table-scroll"><table>' +
+        '<thead><tr><th>الشهر</th><th>عدد المبيعات</th><th>قيمة المبيعات</th><th>المصاريف</th><th>صافي الربح</th><th>نسبة الربح</th><th>الفرق عن الشهر السابق</th></tr></thead>' +
+        '<tbody>' + rows;
+    if (comparisonManualRows) {
+        var firstDiff = '--';
+        var secondDiff = getComparisonDiffText(comparisonManualRows.second.revenue - comparisonManualRows.first.revenue,
+            comparisonManualRows.second.netProfit - comparisonManualRows.first.netProfit);
+        rows += '<tr class="comparison-manual-row"><td>الفترة الأولى</td><td>' + comparisonManualRows.first.count + '</td><td>' + formatMoney(comparisonManualRows.first.revenue) + '</td><td>' + formatMoney(comparisonManualRows.first.expenses) + '</td><td>' + formatMoney(comparisonManualRows.first.netProfit) + '</td><td>' + fmt(comparisonManualRows.first.margin) + '%</td><td style="white-space:normal;text-align:left;">' + firstDiff + '</td></tr>';
+        rows += '<tr class="comparison-manual-row"><td>الفترة الثانية</td><td>' + comparisonManualRows.second.count + '</td><td>' + formatMoney(comparisonManualRows.second.revenue) + '</td><td>' + formatMoney(comparisonManualRows.second.expenses) + '</td><td>' + formatMoney(comparisonManualRows.second.netProfit) + '</td><td>' + fmt(comparisonManualRows.second.margin) + '%</td><td style="white-space:normal;text-align:left;">' + secondDiff + '</td></tr>';
+    }
+    document.getElementById('comparisonStats').innerHTML += '</tbody></table></div></div>';
     document.getElementById('comparisonChartCard').style.display = 'none';
-    // initialize wheel pickers for comparison (default ranges)
-    setTimeout(function() {
-        try {
-            var now = Date.now();
-            var weekAgo = now - (7 * 24 * 60 * 60 * 1000);
-            initComparisonWheelPickers(weekAgo, now, weekAgo - (14 * 24 * 60 * 60 * 1000), now - (7 * 24 * 60 * 60 * 1000));
-        } catch (e) { console.warn('initComparisonWheelPickers failed', e); }
-    }, 80);
 }
 document.getElementById('compareBtn').addEventListener('click', function() {
-    var s1 = getWheelSelectedDate(document.getElementById('compStart1Picker'), false);
-    var e1 = getWheelSelectedDate(document.getElementById('compEnd1Picker'), true);
-    var s2 = getWheelSelectedDate(document.getElementById('compStart2Picker'), false);
-    var e2 = getWheelSelectedDate(document.getElementById('compEnd2Picker'), true);
-    if (!s1 || !e1 || !s2 || !e2) { showToast('يرجى تحديد الفترتين'); return; }
+    var s1 = parseDateString(document.getElementById('compStart1Val').value, false);
+    var e1 = parseDateString(document.getElementById('compEnd1Val').value, true);
+    var s2 = parseDateString(document.getElementById('compStart2Val').value, false);
+    var e2 = parseDateString(document.getElementById('compEnd2Val').value, true);
+    if (!s1 || !e1 || !s2 || !e2) { showToast('يرجى إدخال تواريخ صحيحة للفترتين'); return; }
     var f1 = allSales.filter(function(s) { return s.timestamp >= s1 && s.timestamp <= e1; });
     var f2 = allSales.filter(function(s) { return s.timestamp >= s2 && s.timestamp <= e2; });
     var stats = function(arr, label) { var rev = arr.reduce(function(a, x) { return a + (x.totalAmount || 0); }, 0); var prof = arr.reduce(function(a, x) { return a + (x.profit || 0); }, 0); var cnt = arr.length,
@@ -2369,6 +2630,13 @@ document.getElementById('compareBtn').addEventListener('click', function() {
         r2 = stats(f2, 'الفترة الثانية');
     var diff = function(a, b) { var d = a - b; return d >= 0 ? '<span class="profit-positive">+' + formatMoney(
             d) + '</span>' : '<span class="profit-negative">-' + formatMoney(Math.abs(d)) + '</span>'; };
+    comparisonManualRows = {
+        first: { count: r1.cnt, revenue: r1.rev, expenses: r1.expenses || 0, netProfit: r1.prof, margin: r1.rev !== 0 ? r1.prof / r1.rev * 100 : 0 },
+        second: { count: r2.cnt, revenue: r2.rev, expenses: r2.expenses || 0, netProfit: r2.prof, margin: r2.rev !== 0 ? r2.prof / r2.rev * 100 : 0 }
+    };
+    renderComparison();
+    return;
+
     document.getElementById('comparisonStats').innerHTML =
         '<div class="stat-card"><div class="stat-label">' + r1.label +
         ' - الإيرادات</div><div class="stat-value">' + formatMoney(r1.rev) + '</div></div>' +
