@@ -70,6 +70,7 @@ body {
     display: flex;
     transition: background var(--transition), color var(--transition);
     overflow-x: hidden;
+    overflow-y: auto;
 }
 .login-overlay {
     position: fixed;
@@ -1866,25 +1867,33 @@ tr:hover td {
     transition: var(--transition);
 }
 .sidebar-backdrop {
-    display: none;
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
     z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--transition), visibility var(--transition);
 }
 .sidebar-backdrop.show {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 @media (max-width: 768px) {
     .sidebar {
-        transform: translateX(100%);
-        width: 280px;
+        transform: translateX(-100%);
+        width: 260px;
+        position: fixed;
+        z-index: 1001;
     }
     .sidebar.open {
         transform: translateX(0);
     }
     .main-content {
         margin-right: 0;
+        width: 100%;
     }
     .stats-grid {
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -1894,13 +1903,184 @@ tr:hover td {
         grid-template-columns: 1fr;
     }
     .stat-card .stat-value {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
+    }
+    .stat-card .stat-label {
+        font-size: 0.75rem;
+    }
+    .top-bar {
+        padding: 12px 14px;
+        gap: 8px;
     }
     .top-bar h1 {
-        font-size: 1rem;
+        font-size: 0.95rem;
     }
     .mobile-menu-btn {
         display: flex !important;
+    }
+    .section {
+        padding: 12px 14px;
+    }
+    .content-cards {
+        gap: 10px;
+    }
+    .card {
+        padding: 14px;
+    }
+}
+
+@media (max-width: 600px) {
+    .sidebar {
+        width: 240px;
+    }
+    .top-bar {
+        flex-direction: column;
+        gap: 10px;
+    }
+    .top-bar h1 {
+        font-size: 0.9rem;
+        width: 100%;
+    }
+    .top-bar button {
+        font-size: 0.75rem;
+        padding: 8px 10px;
+    }
+    .section {
+        padding: 10px 12px;
+    }
+    .section h2 {
+        font-size: 1.1rem;
+    }
+    .stats-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    }
+    .stat-card {
+        padding: 12px 8px;
+    }
+    .stat-card .stat-value {
+        font-size: 0.95rem;
+    }
+    .card {
+        padding: 12px;
+        border-radius: 12px;
+    }
+    .form-group {
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+    input, select, textarea {
+        padding: 8px 10px;
+        font-size: 14px;
+    }
+    button {
+        padding: 10px 12px;
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .sidebar {
+        width: 220px;
+    }
+    .sidebar-header {
+        padding: 14px 12px;
+    }
+    .sidebar-header .s-title {
+        font-size: 0.95rem;
+    }
+    .sidebar-header .s-sub {
+        font-size: 0.65rem;
+    }
+    .sidebar-nav button {
+        padding: 10px 12px;
+        font-size: 0.8rem;
+        gap: 8px;
+    }
+    .sidebar-nav button i {
+        font-size: 1rem;
+    }
+    .sidebar-footer button {
+        padding: 8px 10px;
+        font-size: 0.75rem;
+    }
+    .top-bar {
+        padding: 10px 12px;
+    }
+    .top-bar h1 {
+        font-size: 0.85rem;
+    }
+    .section {
+        padding: 8px 10px;
+    }
+    .section h2 {
+        font-size: 1rem;
+        margin-bottom: 8px;
+    }
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+    }
+    .stat-card {
+        padding: 10px 6px;
+    }
+    .stat-card .stat-value {
+        font-size: 0.85rem;
+    }
+    .stat-card .stat-label {
+        font-size: 0.65rem;
+    }
+    .charts-row {
+        gap: 6px;
+    }
+    .card {
+        padding: 10px;
+        border-radius: 10px;
+    }
+    .form-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    input, select, textarea {
+        padding: 7px 8px;
+        font-size: 13px;
+    }
+    button {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+    }
+    table {
+        font-size: 0.75rem;
+    }
+    th, td {
+        padding: 6px 4px;
+    }
+    .table-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .spec-row,
+    .image-row,
+    .social-row {
+        flex-direction: column;
+        gap: 6px;
+    }
+    .action-buttons {
+        flex-direction: column;
+        gap: 6px;
+    }
+    .action-buttons button {
+        width: 100%;
+    }
+    .form-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .form-actions button {
+        width: 100%;
+    }
+    .modal-content {
+        max-height: 90vh;
+        overflow-y: auto;
     }
 }
 
