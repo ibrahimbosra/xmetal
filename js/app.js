@@ -1,21 +1,49 @@
-const firebaseConfig = {
-    apiKey: "AIzaSyBeJ0sbdCqz60a-yqzuZSt6QstDhR3TRtM",
-    authDomain: "profit-zone-e03c6.firebaseapp.com",
-    projectId: "profit-zone-e03c6",
-    storageBucket: "profit-zone-e03c6.firebasestorage.app",
-    messagingSenderId: "306955059136",
-    appId: "1:306955059136:web:a450be9721f4a2db0d1225"
-};
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
-db.enablePersistence().catch(function() {});
+// Initialize Firebase (using firebase-config.js)
+const auth = window.firebaseAuth;
+const db = window.firebaseDb;
 
-let allSales = [],
-    allItems = [],
-    allCategories = [],
-    allExpenses = [],
-    allSliderItems = [];
+if (!auth) {
+    console.error('Firebase auth is not initialized. Check js/firebase-config.js for a valid configuration.');
+}
+
+// Use unified appState instead of global variables
+// All state is now in: window.appState (defined in appState.js)
+
+// Legacy variable shims for backward compatibility
+// These will be removed in future refactoring
+let allSales = [];
+let allItems = [];
+let allCategories = [];
+let allExpenses = [];
+let allSliderItems = [];
+
+// Sync functions to keep legacy code working
+function syncStateToLegacy() {
+    allSales = appState.data.sales;
+    allItems = appState.data.items;
+    allCategories = appState.data.categories;
+    allExpenses = appState.data.expenses;
+    allSliderItems = appState.data.sliderItems;
+}
+
+function syncLegacyToState() {
+    appState.data.sales = allSales;
+    appState.data.items = allItems;
+    appState.data.categories = allCategories;
+    appState.data.expenses = allExpenses;
+    appState.data.sliderItems = allSliderItems;
+}
+
+// Helper to update legacy variables and state
+function updateAllSales(sales) {
+    allSales = sales;
+    appState.setState('data.sales', sales);
+}
+
+function updateAllItems(items) {
+    allItems = items;
+    appState.setState('data.items', items);
+}
 let allSalesFullLoaded = false;
 let currencySettings = { secondaryCurrencyName: 'ريال سعودي', secondaryCurrencySymbol: '﷼', exchangeRate: 3.75,
     defaultInputCurrency: 'primary', defaultSellCurrency: 'primary' };
@@ -131,8 +159,9 @@ function parseDateString(value, endOfDay) {
     return date.getTime();
 }
 function showFirestoreError(e, context) {
-    console.warn(context || 'Firestore', e);
-    showToast((context ? context + ': ' : '') + getFirebaseErrorMessage(e), 'error');
+    // Use unified error handler
+    const error = errorHandler.handleFirebaseError(e, context);
+    showErrorToast(error.message);
 }
 function calcProfitMarginPct(purchasePrice, salePrice) {
     var p = Number(purchasePrice) || 0,
@@ -1283,10 +1312,18 @@ document.getElementById('saveTargetBtn').addEventListener('click', async functio
 });
 
 document.getElementById('doLoginBtn').addEventListener('click', function() {
+    if (!auth) {
+        document.getElementById('loginErrorMsg').style.display = 'block';
+        document.getElementById('loginErrorMsg').textContent = 'خطأ في تهيئة المصادقة؛ تأكد من إعدادات Firebase.';
+        return;
+    }
     var em = document.getElementById('loginEmail').value.trim();
     var pw = document.getElementById('loginPassword').value.trim();
-    if (!em || !pw) { document.getElementById('loginErrorMsg').style.display = 'block';
-        document.getElementById('loginErrorMsg').textContent = 'يرجى إدخال البيانات'; return; }
+    if (!em || !pw) {
+        document.getElementById('loginErrorMsg').style.display = 'block';
+        document.getElementById('loginErrorMsg').textContent = 'يرجى إدخال البيانات';
+        return;
+    }
     document.getElementById('loginErrorMsg').style.display = 'none';
     auth.signInWithEmailAndPassword(em, pw).catch(function(e) {
         document.getElementById('loginErrorMsg').style.display = 'block';
@@ -2553,7 +2590,7 @@ function getComparisonDiffText(revenueDiff, profitDiff) {
     function fmtDiff(name, value) {
         if (value > 0) return name + ': <span class="profit-positive">+' + formatMoney(value) + '</span>';
         if (value < 0) return name + ': <span class="profit-negative">-' + formatMoney(Math.abs(value)) + '</span>';
-        return name + ': <span style="color:var(--text3);">0</span>';
+        return name + ': <span class="comparison-diff-neutral">' + formatMoney(0) + '</span>';
     }
     return '<span class="comparison-diff-text">' + fmtDiff('إيرادات', revenueDiff) + ' | ' + fmtDiff('ربح', profitDiff) + '</span>';
 }
@@ -2566,19 +2603,21 @@ function getComparisonRowDiff(current, previous) {
 }
 
 function renderComparison() {
-    var latestSaleTs = allSales.reduce(function(max, s) { return Math.max(max, s.timestamp || 0); }, 0);
     var currentDate = new Date();
     var year = currentDate.getFullYear();
-    var lastMonthIndex = currentDate.getMonth();
-    if (latestSaleTs) {
-        var latestSaleDate = new Date(latestSaleTs);
-        year = latestSaleDate.getFullYear();
-        lastMonthIndex = latestSaleDate.getMonth();
-    }
+    var currentMonthIndex = currentDate.getMonth();
+    // determine last month in the year that has any sales; if none, fall back to current month
+    var maxMonthWithOps = -1;
+    allSales.forEach(function(s) {
+        var d = new Date(s.timestamp);
+        if (d.getFullYear() === year) {
+            maxMonthWithOps = Math.max(maxMonthWithOps, d.getMonth());
+        }
+    });
+    var lastMonthIndex = maxMonthWithOps >= 0 ? maxMonthWithOps : currentMonthIndex;
     var monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-    var rows = '';
-    var prevMonth = null;
-    for (var i = 0; i <= lastMonthIndex; i++) {
+    var months = [];
+    for (var i = lastMonthIndex; i >= 0; i--) {
         var start = new Date(year, i, 1).getTime();
         var end = new Date(year, i + 1, 1).getTime();
         var monthSales = allSales.filter(function(s) { return s.timestamp >= start && s.timestamp < end; });
@@ -2588,31 +2627,52 @@ function renderComparison() {
         var profit = monthSales.reduce(function(acc, x) { return acc + (x.profit || 0); }, 0);
         var netProfit = profit - expenses;
         var profitMargin = revenue !== 0 ? netProfit / revenue * 100 : 0;
-        var rowClass = i === lastMonthIndex ? ' class="comparison-last-month"' : '';
-        rows += '<tr' + rowClass + '>' +
-            '<td>' + monthNames[i] + '</td>' +
-            '<td>' + salesCount + '</td>' +
-            '<td>' + formatMoney(revenue) + '</td>' +
-            '<td>' + formatMoney(expenses) + '</td>' +
-            '<td>' + formatMoney(netProfit) + '</td>' +
-            '<td>' + fmt(profitMargin) + '%</td>' +
-            '<td style="white-space:normal;text-align:left;">' + getComparisonRowDiff({ revenue: revenue, netProfit: netProfit }, prevMonth) + '</td>' +
-            '</tr>';
-        prevMonth = { revenue: revenue, netProfit: netProfit };
+        months.push({
+            index: i,
+            label: monthNames[i],
+            salesCount: salesCount,
+            revenue: revenue,
+            expenses: expenses,
+            netProfit: netProfit,
+            margin: profitMargin,
+            hasData: salesCount > 0 || revenue !== 0 || expenses !== 0 || netProfit !== 0
+        });
     }
-    document.getElementById('comparisonStats').innerHTML =
-        '<div class="table-container"><div class="table-header"><h3>مقارنة من بداية السنة حتى آخر شهر فيه عملية بيع</h3></div>' +
-        '<div class="table-scroll"><table>' +
-        '<thead><tr><th>الشهر</th><th>عدد المبيعات</th><th>قيمة المبيعات</th><th>المصاريف</th><th>صافي الربح</th><th>نسبة الربح</th><th>الفرق عن الشهر السابق</th></tr></thead>' +
-        '<tbody>' + rows;
+    // Do not trim leading months — show all months from January up to lastMonthIndex.
+    var rows = '';
+    months.forEach(function(month, idx) {
+        var rowClass = month.index === currentMonthIndex ? ' class="comparison-last-month"' : '';
+        // previous month chronologically is the next item in the array (since array is current->older)
+        var prev = (idx + 1) < months.length ? months[idx + 1] : null;
+        var diffText = '--';
+        if (prev) {
+            // treat missing data in prev as zero values — compute diffs regardless of prev.hasData
+            var prevObj = { revenue: prev.revenue || 0, netProfit: prev.netProfit || 0 };
+            diffText = getComparisonRowDiff({ revenue: month.revenue, netProfit: month.netProfit }, prevObj);
+        }
+        rows += '<tr' + rowClass + '>' +
+            '<td>' + month.label + '</td>' +
+            '<td>' + month.salesCount + '</td>' +
+            '<td>' + formatMoney(month.revenue) + '</td>' +
+            '<td>' + formatMoney(month.expenses) + '</td>' +
+            '<td>' + formatMoney(month.netProfit) + '</td>' +
+            '<td>' + fmt(month.margin) + '%</td>' +
+            '<td style="white-space:normal;text-align:left;">' + diffText + '</td>' +
+            '</tr>';
+    });
     if (comparisonManualRows) {
         var firstDiff = '--';
         var secondDiff = getComparisonDiffText(comparisonManualRows.second.revenue - comparisonManualRows.first.revenue,
             comparisonManualRows.second.netProfit - comparisonManualRows.first.netProfit);
+        rows += '<tr class="comparison-manual-separator"><td colspan="7">المقارنة اليدوية</td></tr>';
         rows += '<tr class="comparison-manual-row"><td>الفترة الأولى</td><td>' + comparisonManualRows.first.count + '</td><td>' + formatMoney(comparisonManualRows.first.revenue) + '</td><td>' + formatMoney(comparisonManualRows.first.expenses) + '</td><td>' + formatMoney(comparisonManualRows.first.netProfit) + '</td><td>' + fmt(comparisonManualRows.first.margin) + '%</td><td style="white-space:normal;text-align:left;">' + firstDiff + '</td></tr>';
         rows += '<tr class="comparison-manual-row"><td>الفترة الثانية</td><td>' + comparisonManualRows.second.count + '</td><td>' + formatMoney(comparisonManualRows.second.revenue) + '</td><td>' + formatMoney(comparisonManualRows.second.expenses) + '</td><td>' + formatMoney(comparisonManualRows.second.netProfit) + '</td><td>' + fmt(comparisonManualRows.second.margin) + '%</td><td style="white-space:normal;text-align:left;">' + secondDiff + '</td></tr>';
     }
-    document.getElementById('comparisonStats').innerHTML += '</tbody></table></div></div>';
+    document.getElementById('comparisonStats').innerHTML =
+        '<div class="table-container"><div class="table-header"><h3>مقارنة من بداية السنة حتى الشهر الحالي</h3></div>' +
+        '<div class="table-scroll"><table>' +
+        '<thead><tr><th>الشهر</th><th>عدد المبيعات</th><th>قيمة المبيعات</th><th>المصاريف</th><th>صافي الربح</th><th>نسبة الربح</th><th>الفرق عن الشهر السابق</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table></div></div>';
     document.getElementById('comparisonChartCard').style.display = 'none';
 }
 document.getElementById('compareBtn').addEventListener('click', function() {
@@ -2675,9 +2735,17 @@ function renderInsights() {
     var now = Date.now();
     var ds = getStartOfDay(),
         ms = getStartOfMonth();
+    var currentDate = new Date(now);
+    var year = currentDate.getFullYear();
+    var month = currentDate.getMonth();
+    // Current month: 1st to today
+    var monthStart = new Date(year, month, 1).getTime();
+    var monthEnd = now;
     var todaySales = allSales.filter(function(s) { return s.timestamp >= ds; });
-    var monthSales = allSales.filter(function(s) { return s.timestamp >= ms; });
+    var monthSales = allSales.filter(function(s) { return s.timestamp >= monthStart && s.timestamp < monthEnd; });
     var monthProfit = monthSales.reduce(function(a, s) { return a + (s.profit || 0); }, 0);
+    var monthExpenses = getExpensesSum(monthStart, monthEnd);
+    var monthNetProfit = monthProfit - monthExpenses;
     var dayMap = {};
     allSales.forEach(function(s) { var dk = getDayKey(s.timestamp); if (!dayMap[dk]) dayMap[dk] = { profit: 0,
             revenue: 0, count: 0 };
@@ -2695,10 +2763,17 @@ function renderInsights() {
     var soldIds = new Set(allSales.map(function(s) { return s.itemId; }));
     var slowMovers = allItems.filter(function(i) { return !soldIds.has(i.id) && i.quantity > 0; });
     var fastMovers = getTopProducts(5);
-    var prevMonthStart = getStartOfMonth(new Date(now - 30 * 86400000));
-    var prevMonthSales = allSales.filter(function(s) { return s.timestamp >= prevMonthStart && s.timestamp < ms; });
+    // Previous month: actual month before current (1st to last day)
+    var prevMonth = month - 1;
+    var prevYear = year;
+    if (prevMonth < 0) { prevMonth = 11; prevYear = year - 1; }
+    var prevMonthStart = new Date(prevYear, prevMonth, 1).getTime();
+    var prevMonthEnd = new Date(year, month, 1).getTime();
+    var prevMonthSales = allSales.filter(function(s) { return s.timestamp >= prevMonthStart && s.timestamp < prevMonthEnd; });
     var prevMonthProfit = prevMonthSales.reduce(function(a, s) { return a + (s.profit || 0); }, 0);
-    var profitGrowth = prevMonthProfit > 0 ? ((monthProfit - prevMonthProfit) / prevMonthProfit * 100) : 0;
+    var prevMonthExpenses = getExpensesSum(prevMonthStart, prevMonthEnd);
+    var prevMonthNetProfit = prevMonthProfit - prevMonthExpenses;
+    var profitGrowth = prevMonthNetProfit > 0 ? ((monthNetProfit - prevMonthNetProfit) / prevMonthNetProfit * 100) : 0;
     document.getElementById('insightsGrid').innerHTML =
         '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-2);"><i class="fas fa-calendar-check"></i></div><div class="stat-label">أفضل يوم</div><div class="stat-value" style="font-size:1rem;">' +
         (bestDay ? bestDay.day : '--') + '</div><div class="stat-sub">ربح: ' + formatMoney(bestDay ? bestDay
@@ -2709,7 +2784,7 @@ function renderInsights() {
         '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-4);"><i class="fas fa-clock"></i></div><div class="stat-label">ساعة الذروة</div><div class="stat-value">' +
         (peakHour ? peakHour[0] + ':00' : '--') + '</div><div class="stat-sub">' + (peakHour ? peakHour[1] +
             ' عملية' : '') + '</div></div>' +
-        '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-5);"><i class="fas fa-percentage"></i></div><div class="stat-label">نمو الأرباح الشهري</div><div class="stat-value ' +
+        '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-5);"><i class="fas fa-percentage"></i></div><div class="stat-label">نمو الأرباح الشهرية الصافية</div><div class="stat-value ' +
         (profitGrowth >= 0 ? 'profit-positive' : 'profit-negative') + '">' + fmt(profitGrowth) +
         '%</div></div>';
     var insightsHtml = '';
