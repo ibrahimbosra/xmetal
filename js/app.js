@@ -1254,32 +1254,46 @@ function closeMobileSidebar() {
     document.body.style.overflow = 'auto';
 }
 
-document.getElementById('mobileMenuBtn').addEventListener('click', function() {
-    var sidebar = document.getElementById('sidebar');
-    var backdrop = document.getElementById('sidebarBackdrop');
-    sidebar.classList.toggle('open');
-    backdrop.classList.toggle('show');
-    if (sidebar.classList.contains('open')) {
-        document.body.style.overflow = 'hidden';
-    } else {
-        document.body.style.overflow = 'auto';
-    }
-});
-document.getElementById('sidebarBackdrop').addEventListener('click', closeMobileSidebar);
+var mobileMenuBtn = document.getElementById('mobileMenuBtn');
+var sidebar = document.getElementById('sidebar');
+var sidebarBackdrop = document.getElementById('sidebarBackdrop');
+
+if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', function(event) {
+        event.stopPropagation();
+        sidebar.classList.toggle('open');
+        sidebarBackdrop.classList.toggle('show');
+        document.body.style.overflow = sidebar.classList.contains('open') ? 'hidden' : 'auto';
+    });
+}
+
+if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', closeMobileSidebar);
+}
 
 document.querySelectorAll('#sidebarNav button').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        document.querySelectorAll('#sidebarNav button').forEach(function(b) { b.classList
-                .remove('active'); });
+    btn.addEventListener('click', function(event) {
+        event.stopPropagation();
+        document.querySelectorAll('#sidebarNav button').forEach(function(b) {
+            b.classList.remove('active');
+        });
         btn.classList.add('active');
         currentSection = btn.dataset.section;
         salesPage = 0;
         salesQueryCache = { lastDoc: null, hasMore: true, currentPageItems: [] };
         destroyAllCharts();
         renderCurrentSection();
-        document.getElementById('pageTitle').textContent = btn.textContent.trim();
+        var pageTitle = document.getElementById('pageTitle');
+        if (pageTitle) pageTitle.textContent = btn.textContent.trim();
         closeMobileSidebar();
     });
+});
+
+document.addEventListener('click', function(event) {
+    if (!sidebar.classList.contains('open')) return;
+    if (event.target === mobileMenuBtn || mobileMenuBtn.contains(event.target)) return;
+    if (sidebar.contains(event.target) || sidebarBackdrop.contains(event.target)) return;
+    closeMobileSidebar();
 });
 
 document.getElementById('sidebarLogoutBtn').addEventListener('click', function() {
