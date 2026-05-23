@@ -515,6 +515,18 @@ body {
 #section-comparison .comparison-last-month {
     background: rgba(34, 197, 94, 0.12);
 }
+#section-comparison .comparison-manual-separator td {
+    background: rgba(251, 146, 60, 0.16);
+    color: #92400e;
+    font-weight: 700;
+    text-align: center;
+}
+#section-comparison .comparison-manual-row {
+    background: rgba(251, 146, 60, 0.1);
+}
+#section-comparison .comparison-manual-row td {
+    border-top: 1px solid rgba(251, 146, 60, 0.2);
+}
 table {
     width: 100%;
     border-collapse: collapse;
@@ -560,6 +572,14 @@ tr:hover td {
 .profit-negative {
     color: #e55353;
     font-weight: 700;
+}
+.comparison-diff-text {
+    font-size: 0.8rem;
+    line-height: 1.2;
+}
+.comparison-diff-neutral {
+    color: var(--text3);
+    font-weight: 600;
 }
 .badge {
     display: inline-block;
