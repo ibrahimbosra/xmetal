@@ -1883,7 +1883,7 @@ tr:hover td {
 }
 @media (max-width: 768px) {
     .sidebar {
-        transform: translateX(-100%);
+        transform: translateX(100%);
         width: 260px;
         position: fixed;
         z-index: 1001;
