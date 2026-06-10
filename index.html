@@ -79,6 +79,18 @@
                     <div class="chart-card"><h3><i class="fas fa-star" style="color:#6b46c1;"></i> أكثر المنتجات مبيعاً</h3><div class="chart-wrap"><canvas id="chartTopProducts"></canvas></div></div>
                     <div class="chart-card"><h3><i class="fas fa-tags" style="color:#0987a0;"></i> أكثر الفئات ربحاً</h3><div class="chart-wrap"><canvas id="chartTopCategories"></canvas></div></div>
                 </div>
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3>ملخص الأصناف المضافة شهرياً</h3>
+                        <span id="addedItemsSummaryMonthLabel" style="color:var(--text3);font-size:0.85rem;"></span>
+                    </div>
+                    <div class="table-scroll">
+                        <table>
+                            <thead><tr><th>الشهر</th><th>عدد الأصناف</th><th>إجمالي القطع</th><th>سعر الشراء الإجمالي</th><th>سعر البيع الإجمالي</th></tr></thead>
+                            <tbody id="monthlyAddedItemsSummaryBody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
 
             <div class="section-panel" id="section-inventory">
@@ -102,7 +114,26 @@
                     <form id="itemForm">
                         <div class="form-grid">
                             <div class="form-group full-width"><label>الاسم *</label><div class="input-wrapper"><i class="fas fa-tag"></i><input type="text" id="itemName" required></div></div>
-                            <div class="form-group"><label id="purchasePriceLabel">سعر الشراء ($)</label><div class="input-wrapper special"><i class="fas fa-dollar-sign"></i><input type="number" id="purchasePrice" step="0.01" min="0" required><button type="button" class="currency-switch" id="switchPurchaseCurrency">تبديل</button></div><div id="purchasePriceSecondary" class="currency-info"></div></div>
+                            <div class="form-group" id="purchaseBatchesGroup">
+                                <label id="purchasePriceLabel">سعر الشراء المتوسط ($)</label>
+                                <div class="input-wrapper special"><i class="fas fa-dollar-sign"></i>
+                                    <input type="number" id="purchasePrice" step="0.01" min="0" required>
+                                    <button type="button" class="currency-switch" id="switchPurchaseCurrency">تبديل</button>
+                                </div>
+                                <div id="purchasePriceSecondary" class="currency-info"></div>
+
+                                <div id="purchaseBatchesContainer" style="margin-top:10px;background:var(--surface);padding:10px;border-radius:12px;border:1px solid var(--border);">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
+                                        <strong>دفعات الشراء</strong>
+                                        <div style="display:flex;gap:8px;align-items:center;">
+                                            <div style="font-size:0.85rem;color:var(--text3);">إجمالي الكمية: <span id="batchesTotalQty">0</span></div>
+                                            <div style="font-size:0.85rem;color:var(--text3);">إجمالي التكلفة: <span id="batchesTotalCost">0</span></div>
+                                            <button type="button" id="addPurchaseBatchBtn" class="action-btn">+ إضافة دفعة</button>
+                                        </div>
+                                    </div>
+                                    <div id="purchaseBatchesList" style="display:flex;flex-direction:column;gap:8px;"></div>
+                                </div>
+                            </div>
                             <div class="form-group"><label id="salePriceLabel">سعر البيع ($)</label><div class="input-wrapper special"><i class="fas fa-dollar-sign"></i><input type="number" id="salePrice" step="0.01" min="0" required><button type="button" class="currency-switch" id="switchSaleCurrency">تبديل</button></div><div id="salePriceSecondary" class="currency-info"></div></div>
                             <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="quantity" min="0" required></div></div>
                             <div class="form-group"><label>الفئة</label><div class="input-wrapper"><i class="fas fa-list"></i><select id="productCategoryId"><option value="">-- بدون فئة --</option></select></div></div>
@@ -128,7 +159,7 @@
                 <div class="filter-row" id="salesFilterRow"></div>
                 <div class="table-container">
                     <div class="table-header"><h3>📋 سجل المبيعات</h3><span id="salesCountLabel" class="text-muted" style="font-size:0.75rem;color:var(--text3);"></span></div>
-                    <div class="table-scroll"><table><thead><tr><th>#</th><th>التاريخ</th><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>التكلفة</th><th>الربح</th><th>نسبة الربح</th><th>تفاصيل</th></tr></thead><tbody id="salesLogBody"></tbody></table></div>
+                    <div class="table-scroll"><table><thead><tr><th>#</th><th>التاريخ</th><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>التكلفة</th><th>الربح</th><th>نسبة الربح</th><th>الإجراءات</th></tr></thead><tbody id="salesLogBody"></tbody></table></div>
                     <div class="pagination" id="salesPagination"></div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
@@ -140,7 +171,7 @@
             <div class="section-panel" id="section-activityLog">
                 <div class="filter-row" id="activityFilterRow"></div>
                 <div class="table-container">
-                    <div class="table-header"><h3>📝 سجل العمليات</h3><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;"><button class="btn-sm outline" id="exportActivityCsvBtn">تصدير CSV</button><button class="btn-sm outline" id="exportActivityPdfBtn">تصدير PDF</button></div></div>
+                    <div class="table-header"><h3>📝 سجل العمليات</h3><span id="activityCountLabel" class="text-muted" style="font-size:0.75rem;color:var(--text3);"></span><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;"><button class="btn-sm outline" id="exportActivityCsvBtn">تصدير CSV</button><button class="btn-sm outline" id="exportActivityPdfBtn">تصدير PDF</button></div></div>
                     <div class="table-scroll"><table><thead><tr><th>#</th><th>التاريخ</th><th>الإجراء</th><th>الكيان</th><th>التفاصيل</th><th>المستخدم</th><th>عرض</th></tr></thead><tbody id="activityLogBody"></tbody></table></div>
                     <div class="pagination" id="activityPagination"></div>
                 </div>
