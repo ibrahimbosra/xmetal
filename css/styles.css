@@ -516,6 +516,12 @@ body {
 #section-comparison .comparison-last-month {
     background: rgba(34, 197, 94, 0.12);
 }
+#section-dashboard .current-month-row {
+    background: rgba(56, 189, 248, 0.12);
+}
+#section-dashboard .current-month-row td {
+    font-weight: 700;
+}
 #section-comparison .comparison-manual-separator td {
     background: rgba(251, 146, 60, 0.16);
     color: #92400e;
