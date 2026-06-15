@@ -265,6 +265,9 @@ let searchDebounceTimer = null;
 let itemVisibility = {};
 let currentItemId = null,
     isEditingItem = false;
+// Advanced fields lazy-load state
+window.advancedFieldsLoaded = false;
+window.pendingEditItem = null;
 let tempPurchaseCurrency = false,
     tempSaleCurrency = false,
     tempSellCurrency = false,
@@ -317,9 +320,28 @@ function fmtQty(n) {
     return String(Number(num.toFixed(2))).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1');
 }
 function fmtInt(n) { return parseInt(n || 0, 10); }
-function fmtDate(ts) { return new Date(ts).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short',
-        day: 'numeric' }); }
-function fmtDateTime(ts) { return new Date(ts).toLocaleString('ar-EG'); }
+function formatDateString(ts, includeTime) {
+    var d = new Date(ts);
+    if (!ts || isNaN(d.getTime())) return '';
+    var year = d.getFullYear();
+    var month = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    var datePart = day + '/' + month + '/' + year;
+    if (includeTime) {
+        var hours = String(d.getHours()).padStart(2, '0');
+        var minutes = String(d.getMinutes()).padStart(2, '0');
+        return datePart + ' ' + hours + ':' + minutes;
+    }
+    return datePart;
+}
+function fmtDate(ts) { return formatDateString(ts, false); }
+function fmtDateTime(ts) { return formatDateString(ts, true); }
+function formatDateSeparatorLabel(ts) {
+    var d = new Date(ts);
+    if (!ts || isNaN(d.getTime())) return '';
+    var weekday = d.toLocaleDateString('ar-EG', { weekday: 'long' });
+    return weekday + ' ' + formatDateString(ts, false);
+}
 function getDayKey(ts) { var d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,
         '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function getMonthKey(ts) { var d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,
@@ -656,7 +678,7 @@ function getActivityFilterDateValue(ts) {
 }
 
 function getActivityFilterDateString(ts) {
-    return ts ? new Date(ts).toLocaleDateString('ar-EG') : '';
+    return fmtDate(ts);
 }
 
 function getActivityRowCount(items) {
@@ -1246,7 +1268,17 @@ function getActivityPaginationButtons() {
 
 function getActivityRowsHtml(items) {
     if (!items.length) return '<tr><td colspan="7" style="padding:30px;color:var(--text3);">لا توجد سجلات</td></tr>';
-    return items.map(function(item, i) { return getActivityTableRow(item, activityPage * activityPageSize + i); }).join('');
+    var html = '';
+    var lastDayKey = null;
+    items.forEach(function(item, i) {
+        var dayKey = getDayKey(item.timestamp);
+        if (dayKey !== lastDayKey) {
+            html += getDateSeparatorRowHtml(item.timestamp, 7);
+            lastDayKey = dayKey;
+        }
+        html += getActivityTableRow(item, i);
+    });
+    return html;
 }
 
 function getActivitySectionElements() {
@@ -1259,10 +1291,10 @@ function getActivitySectionElements() {
 
 function updateActivitySectionUI(items) {
     var els = getActivitySectionElements();
-    if (!els.body || !els.pagination) return;
+    if (!els.body) return;
     if (els.summary) els.summary.innerHTML = getActivitySummaryHtml(items);
     els.body.innerHTML = getActivityRowsHtml(items);
-    els.pagination.innerHTML = getActivityPaginationButtons();
+    if (document.getElementById('activityLoadMoreRow')) renderActivityLoadMore();
 }
 
 function getActivityExportFilenameWithDate() {
@@ -1309,55 +1341,75 @@ function getActivityPdfFileName(filename) {
 }
 
 async function fetchActivityPage() {
-    if (activityPageItemsCache.hasOwnProperty(activityPage)) {
-        activityQueryCache.currentPageItems = activityPageItemsCache[activityPage];
-        activityQueryCache.hasMore = !!activityPageCursors[activityPage + 1];
-        return;
-    }
+    if (activityQueryCache.loading || !activityQueryCache.hasMore) return;
+    activityQueryCache.loading = true;
+    updateActivityLoadMoreButton();
 
-    var sp = activityFilterParams;
-    var query = db.collection('activityLog').orderBy('timestamp', 'desc');
-    if (sp.period === 'today') { var ds = getStartOfDay(); query = query.where('timestamp', '>=', ds); }
-    else if (sp.period === 'week') { var ws = getStartOfWeek(); query = query.where('timestamp', '>=', ws); }
-    else if (sp.period === 'month') { var ms = getStartOfMonth(); query = query.where('timestamp', '>=', ms); }
-    else if (sp.period === 'year') { var ys = getStartOfYear(); query = query.where('timestamp', '>=', ys); }
-    else if (sp.period === 'custom' && sp.customStart) { query = query.where('timestamp', '>=', sp.customStart); if (sp.customEnd) query = query.where('timestamp', '<=', sp.customEnd); }
-    if (sp.actionType) query = query.where('actionType', '==', sp.actionType);
-    if (sp.entity) query = query.where('entity', '==', sp.entity);
-    if (sp.user) query = query.where('user', '==', sp.user);
-    query = query.limit(activityPageSize + 1);
-    if (activityPage > 0 && activityPageCursors[activityPage]) query = query.startAfter(activityPageCursors[activityPage]);
+    var query = db.collection('activityLog').orderBy('timestamp', 'desc').limit(activityPageSize + 1);
+    if (activityQueryCache.lastDoc) query = query.startAfter(activityQueryCache.lastDoc);
     try {
         var snap = await query.get();
         var rawItems = snap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
-        if (sp.searchTerm) { var term = sp.searchTerm.toLowerCase(); rawItems = rawItems.filter(function(item) { return activityMatchesSearch(item, term); }); }
         var nextCursor = null;
         if (rawItems.length > activityPageSize) {
             nextCursor = snap.docs[activityPageSize - 1];
             rawItems = rawItems.slice(0, activityPageSize);
         }
-        activityQueryCache.currentPageItems = rawItems;
-        activityPageItemsCache[activityPage] = rawItems;
-        activityPageCursors[activityPage + 1] = nextCursor;
+        activityQueryCache.currentPageItems = (activityQueryCache.currentPageItems || []).concat(rawItems);
+        activityQueryCache.lastDoc = nextCursor;
         activityQueryCache.hasMore = !!nextCursor;
     } catch (e) {
-        activityQueryCache.currentPageItems = [];
         activityQueryCache.hasMore = false;
         showFirestoreError(e, 'تعذّر تحميل سجل العمليات');
+    } finally {
+        activityQueryCache.loading = false;
+        updateActivityLoadMoreButton();
     }
 }
 
 function renderActivityLog() {
-    activityPage = Math.max(0, activityPage);
-    buildActivityFilterRow();
-    fetchActivityPage().then(function() {
-        var currentCount = activityQueryCache.currentPageItems.length;
-        var activityLabel = document.getElementById('activityCountLabel');
-        if (activityLabel) {
-            activityLabel.textContent = currentCount > 0 ? getPageRangeLabel(activityPage, activityPageSize, currentCount, 'سجلات') : 'لا توجد سجلات';
-        }
-        updateActivitySectionUI(activityQueryCache.currentPageItems);
-    });
+    if (!activityQueryCache.currentPageItems.length) {
+        renderActivityTable();
+        fetchActivityPage().then(renderActivityTable);
+    } else {
+        renderActivityTable();
+    }
+}
+
+function renderActivityTable() {
+    var currentCount = (activityQueryCache.currentPageItems || []).length;
+    var activityLabel = document.getElementById('activityCountLabel');
+    if (activityLabel) {
+        activityLabel.textContent = currentCount > 0 ? 'عرض ' + currentCount + ' من السجلات' : (activityQueryCache.loading ? 'جاري تحميل السجلات...' : 'لا توجد سجلات');
+    }
+    var body = document.getElementById('activityLogBody');
+    if (body) body.innerHTML = getActivityRowsHtml(activityQueryCache.currentPageItems || []);
+    renderActivityLoadMore();
+}
+
+function renderActivityLoadMore() {
+    var row = document.getElementById('activityLoadMoreRow');
+    if (!row) return;
+    if (!activityQueryCache.hasMore && (activityQueryCache.currentPageItems || []).length > 0) {
+        row.style.display = 'none';
+        return;
+    }
+    row.style.display = 'flex';
+    updateActivityLoadMoreButton();
+}
+
+function updateActivityLoadMoreButton() {
+    var btn = document.getElementById('activityLoadMoreBtn');
+    var info = document.getElementById('activityLoadMoreInfo');
+    if (!btn || !info) return;
+    btn.disabled = !!activityQueryCache.loading || !activityQueryCache.hasMore;
+    btn.textContent = activityQueryCache.loading ? 'جاري التحميل...' : 'تحميل المزيد';
+    info.textContent = activityQueryCache.hasMore ? '' : ((activityQueryCache.currentPageItems || []).length ? 'تم تحميل جميع السجلات.' : 'لا توجد سجلات إضافية.');
+}
+
+function loadMoreActivity() {
+    if (activityQueryCache.loading || !activityQueryCache.hasMore) return;
+    fetchActivityPage().then(renderActivityTable);
 }
 
 function renderActivityPagination() {
@@ -1394,7 +1446,7 @@ function resetActivityFilters() {
 }
 
 function viewActivityLogDetail(recordId) {
-    var item = activityQueryCache.currentPageItems.find(function(it) { return it.id === recordId; });
+    var item = (activityQueryCache.currentPageItems || []).find(function(it) { return it.id === recordId; });
     if (!item) return;
     writeActivityModalContent(item);
     document.getElementById('activityDetailModal').classList.add('show');
@@ -2170,7 +2222,7 @@ function getDailyProfitData(days) { days = days || 30;
         d.setDate(d.getDate() - i); var ds = getStartOfDay(d),
             de = ds + 86400000; var daySales = allSales.filter(function(s) { return s.timestamp >= ds && s.timestamp <
                 de; });
-        labels.push(new Date(ds).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }));
+        labels.push(formatDateString(ds, false));
         profits.push(daySales.reduce(function(a, s) { return a + (s.profit || 0); }, 0));
         revenues.push(daySales.reduce(function(a, s) { return a + (s.totalAmount || 0); }, 0)); }
     return { labels: labels, profits: profits, revenues: revenues };
@@ -2421,7 +2473,7 @@ function renderInventory() {
                 .name) + '</span>' + (item.categoryName ? '<span class="product-category-tag">' + escHtml(item
                 .categoryName) + '</span>' : '') + '</div>' +
             '<div class="product-meta-wrapper"><div class="product-meta"><span><i class="fas fa-cubes"></i> ' +
-            item.quantity + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="' + (vis ? '' : 'blur-price') + '" style="font-size:0.8rem;color:var(--text2);">التكلفة: ' + formatMoney(itemCapital) + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="profit-badge-small ' + profitClass + ' ' + (vis ? '' :
+            item.quantity + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="' + (vis ? '' : 'blur-price') + '" style="font-size:0.8rem;color:var(--text2);">إجمالي التكلفة: ' + formatMoney(itemCapital) + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="profit-badge-small ' + profitClass + ' ' + (vis ? '' :
                 'blur-price') + '">' + profit + '%</span></div>' +
             '<button class="eye-icon" data-id="' + item.id + '"><i class="fas ' + (vis ? 'fa-eye' :
                 'fa-eye-slash') + '"></i></button></div></div>' +
@@ -2465,18 +2517,21 @@ function prepareAddItemForm() {
     currentItemId = null;
     isEditingItem = false;
     document.getElementById('itemForm').reset();
-    document.getElementById('productHidden').checked = false;
-    document.getElementById('productLimitedQty').checked = false;
-    document.getElementById('productDiscountEnabled').checked = false;
-    document.getElementById('discountValueGroup').style.display = 'none';
-    document.getElementById('productDiscountValue').value = 0;
-    document.getElementById('productShowPrice').checked = false;
-    document.getElementById('productDescription').value = '';
-    document.getElementById('productYoutubeUrl').value = '';
-    document.getElementById('specificationsContainer').innerHTML = '';
-    document.getElementById('imagesContainer').innerHTML = '';
-    addSpecificationRow('', '');
-    addImageRow('', true);
+    var el;
+    el = document.getElementById('productHidden'); if (el) el.checked = false;
+    el = document.getElementById('productLimitedQty'); if (el) el.checked = false;
+    el = document.getElementById('productDiscountEnabled'); if (el) el.checked = false;
+    el = document.getElementById('discountValueGroup'); if (el) el.style.display = 'none';
+    el = document.getElementById('productDiscountValue'); if (el) el.value = 0;
+    el = document.getElementById('productShowPrice'); if (el) el.checked = false;
+    el = document.getElementById('productDescription'); if (el) el.value = '';
+    el = document.getElementById('productYoutubeUrl'); if (el) el.value = '';
+    el = document.getElementById('specificationsContainer'); if (el) el.innerHTML = '';
+    el = document.getElementById('imagesContainer'); if (el) el.innerHTML = '';
+    if (window.advancedFieldsLoaded) {
+        addSpecificationRow('', '');
+        addImageRow('', true);
+    }
     // initialize purchase batches UI
     window.currentPurchaseBatches = [];
     var pbList = document.getElementById('purchaseBatchesList');
@@ -2505,16 +2560,22 @@ function editItem(id) {
     document.getElementById('salePrice').value = tempSaleCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item
         .salePrice);
     document.getElementById('quantity').value = item.quantity;
-    document.getElementById('productHidden').checked = item.hidden || false;
-    document.getElementById('productLimitedQty').checked = item.limitedQuantity || false;
-    document.getElementById('productDiscountEnabled').checked = item.discountEnabled || false;
-    document.getElementById('productDiscountValue').value = item.discountValue || 0;
-    document.getElementById('discountValueGroup').style.display = item.discountEnabled ? 'block' : 'none';
-    document.getElementById('productShowPrice').checked = item.showPrice || false;
-    document.getElementById('productDescription').value = item.description || '';
-    document.getElementById('productYoutubeUrl').value = item.youtubeUrl || '';
+    var el;
+    el = document.getElementById('productHidden'); if (el) el.checked = item.hidden || false;
+    el = document.getElementById('productLimitedQty'); if (el) el.checked = item.limitedQuantity || false;
+    el = document.getElementById('productDiscountEnabled'); if (el) el.checked = item.discountEnabled || false;
+    el = document.getElementById('productDiscountValue'); if (el) el.value = item.discountValue || 0;
+    el = document.getElementById('discountValueGroup'); if (el) el.style.display = (item.discountEnabled ? 'block' : 'none');
+    el = document.getElementById('productShowPrice'); if (el) el.checked = item.showPrice || false;
+    el = document.getElementById('productDescription'); if (el) el.value = item.description || '';
+    el = document.getElementById('productYoutubeUrl'); if (el) el.value = item.youtubeUrl || '';
     document.getElementById('productCategoryId').value = item.categoryId || '';
-    loadSpecificationsAndImages(item);
+    // If advanced fields are loaded inject specs/images now, otherwise defer until user opens advanced options
+    if (window.advancedFieldsLoaded) {
+        loadSpecificationsAndImages(item);
+    } else {
+        window.pendingEditItem = item;
+    }
     // load purchase batches if present, otherwise create a batch derived from existing purchasePrice & quantity
     window.currentPurchaseBatches = [];
     var pbList = document.getElementById('purchaseBatchesList');
@@ -2698,6 +2759,52 @@ function loadSpecificationsAndImages(product) {
     else addImageRow('', true);
 }
 
+// Ensure advanced product fields are instantiated (lazy load)
+function ensureAdvancedFieldsLoaded() {
+    return new Promise(function(resolve) {
+        if (window.advancedFieldsLoaded) return resolve();
+        var tpl = document.getElementById('advancedProductTemplate');
+        var container = document.getElementById('advancedContainer');
+        if (!tpl || !container) return resolve();
+        container.appendChild(tpl.content.cloneNode(true));
+        // wire up buttons
+        var addSpec = document.getElementById('addSpecBtn');
+        if (addSpec) addSpec.addEventListener('click', function() { addSpecificationRow('', ''); });
+        var addImg = document.getElementById('addImageBtn');
+        if (addImg) addImg.addEventListener('click', function() { addImageRow('', document.querySelectorAll('#imagesContainer .image-row').length === 0); });
+        var disc = document.getElementById('productDiscountEnabled');
+        if (disc) disc.addEventListener('change', function() { var dv = document.getElementById('discountValueGroup'); if (dv) dv.style.display = this.checked ? 'block' : 'none'; });
+        // If we are editing an item and pending data exists, populate it
+        if (window.pendingEditItem) {
+            loadSpecificationsAndImages(window.pendingEditItem);
+            window.pendingEditItem = null;
+        } else {
+            // if creating new item, ensure one empty spec and image exist
+            if (!document.querySelectorAll('#specificationsContainer .spec-row').length) addSpecificationRow('', '');
+            if (!document.querySelectorAll('#imagesContainer .image-row').length) addImageRow('', true);
+        }
+        window.advancedFieldsLoaded = true;
+        resolve();
+    });
+}
+
+// Advanced toggle button behavior
+var advBtn = document.getElementById('advancedToggleBtn');
+if (advBtn) {
+    advBtn.addEventListener('click', async function() {
+        var cont = document.getElementById('advancedContainer');
+        var che = document.getElementById('advancedChevron');
+        if (!window.advancedFieldsLoaded) {
+            await ensureAdvancedFieldsLoaded();
+            if (cont) cont.style.display = 'block';
+            if (che) { che.classList.remove('fa-chevron-down'); che.classList.add('fa-chevron-up'); }
+        } else {
+            if (cont) cont.style.display = cont.style.display === 'none' || !cont.style.display ? 'block' : 'none';
+            if (che) che.classList.toggle('fa-chevron-down'), che.classList.toggle('fa-chevron-up');
+        }
+    });
+}
+
 function populateCategorySelect() {
     var select = document.getElementById('productCategoryId');
     if (select) {
@@ -2750,17 +2857,32 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     var catId = document.getElementById('productCategoryId').value;
     var cat = allCategories.find(function(c) { return c.id === catId; });
     var categoryName = cat ? cat.name : '';
+    // Collect advanced fields only if present in DOM. When editing and advanced fields are not loaded,
+    // preserve existing values from the original item.
+    var existingItem = isEditingItem ? allItems.find(function(i) { return i.id === currentItemId; }) : null;
+    function getCheckbox(id, defaultVal) { var el = document.getElementById(id); if (el) return el.checked; return (existingItem && existingItem[id.replace(/^product/, '').charAt(0).toLowerCase() + id.replace(/^product/, '').slice(1)]) || defaultVal; }
+    var hiddenVal = (document.getElementById('productHidden') ? document.getElementById('productHidden').checked : (existingItem ? !!existingItem.hidden : false));
+    var limitedVal = (document.getElementById('productLimitedQty') ? document.getElementById('productLimitedQty').checked : (existingItem ? !!existingItem.limitedQuantity : false));
+    var discountEnabledVal = (document.getElementById('productDiscountEnabled') ? document.getElementById('productDiscountEnabled').checked : (existingItem ? !!existingItem.discountEnabled : false));
+    var discountValueVal = 0;
+    if (document.getElementById('productDiscountValue')) discountValueVal = parseFloat(document.getElementById('productDiscountValue').value) || 0;
+    else if (existingItem) discountValueVal = existingItem.discountValue || 0;
+    var showPriceVal = (document.getElementById('productShowPrice') ? document.getElementById('productShowPrice').checked : (existingItem ? !!existingItem.showPrice : false));
+    var descriptionVal = document.getElementById('productDescription') ? document.getElementById('productDescription').value : (existingItem ? (existingItem.description || '') : '');
+    var youtubeVal = document.getElementById('productYoutubeUrl') ? document.getElementById('productYoutubeUrl').value : (existingItem ? (existingItem.youtubeUrl || '') : '');
+    var specsVal = document.getElementById('specificationsContainer') ? collectSpecifications() : (existingItem ? (existingItem.specifications || []) : []);
+    var imagesVal = document.getElementById('imagesContainer') ? collectImages() : (existingItem ? (existingItem.images || []) : []);
+
     var extra = {
-        hidden: document.getElementById('productHidden').checked,
-        limitedQuantity: document.getElementById('productLimitedQty').checked,
-        discountEnabled: document.getElementById('productDiscountEnabled').checked,
-        discountValue: document.getElementById('productDiscountEnabled').checked ? parseFloat(document
-            .getElementById('productDiscountValue').value) || 0 : 0,
-        showPrice: document.getElementById('productShowPrice').checked,
-        description: document.getElementById('productDescription').value,
-        youtubeUrl: document.getElementById('productYoutubeUrl').value,
-        specifications: collectSpecifications(),
-        images: collectImages(),
+        hidden: hiddenVal,
+        limitedQuantity: limitedVal,
+        discountEnabled: discountEnabledVal,
+        discountValue: discountEnabledVal ? discountValueVal : 0,
+        showPrice: showPriceVal,
+        description: descriptionVal,
+        youtubeUrl: youtubeVal,
+        specifications: specsVal,
+        images: imagesVal,
         purchaseBatches: storedBatches,
         categoryId: catId || null,
         categoryName: categoryName
@@ -2974,93 +3096,116 @@ if (inventoryItemsList && inventoryScrollTopBtn) {
     });
 }
 
-async function fetchSalesPage() {
-    if (salesPageItemsCache.hasOwnProperty(salesPage)) {
-        salesQueryCache.currentPageItems = salesPageItemsCache[salesPage];
-        salesQueryCache.hasMore = !!salesPageCursors[salesPage + 1];
-        return;
-    }
+async function reloadSalesLog() {
+    // Reset cache to initial state
+    salesQueryCache = { lastDoc: null, hasMore: true, currentPageItems: [] };
+    // Fetch fresh data from Firebase
+    await fetchSalesPage();
+    // Render the updated table
+    renderSalesTable();
+}
 
-    var sp = salesFilterParams;
-    var query = db.collection('sales').orderBy('timestamp', 'desc');
-    var now = Date.now();
-    if (sp.period === 'today') { var ds = getStartOfDay();
-        query = query.where('timestamp', '>=', ds); } else if (sp.period === 'week') { var ws = getStartOfWeek();
-        query = query.where('timestamp', '>=', ws); } else if (sp.period === 'month') { var ms = getStartOfMonth();
-        query = query.where('timestamp', '>=', ms); } else if (sp.period === 'year') { var ys = getStartOfYear();
-        query = query.where('timestamp', '>=', ys); } else if (sp.period === '7days') { var d7 = now - 7 *
-        86400000;
-        query = query.where('timestamp', '>=', d7); } else if (sp.period === '30days') { var d30 = now - 30 *
-        86400000;
-        query = query.where('timestamp', '>=', d30); } else if (sp.period === '90days') { var d90 = now - 90 *
-        86400000;
-        query = query.where('timestamp', '>=', d90); } else if (sp.period === 'custom' && sp.customStart) { query =
-            query.where('timestamp', '>=', sp.customStart); if (sp.customEnd) query = query.where('timestamp',
-            '<=', sp.customEnd); }
-    if (sp.productId) query = query.where('itemId', '==', sp.productId);
-    if (sp.minProfit !== '') query = query.where('profit', '>=', parseFloat(sp.minProfit));
-    if (sp.maxProfit !== '') query = query.where('profit', '<=', parseFloat(sp.maxProfit));
-    if (sp.minQty !== '') query = query.where('quantity', '>=', parseFloat(sp.minQty));
-    if (sp.maxQty !== '') query = query.where('quantity', '<=', parseFloat(sp.maxQty));
-    query = query.limit(salesPageSize + 1);
-    if (salesPage > 0 && salesPageCursors[salesPage]) query = query.startAfter(salesPageCursors[salesPage]);
+async function fetchSalesPage() {
+    if (salesQueryCache.loading || !salesQueryCache.hasMore) return;
+    salesQueryCache.loading = true;
+    updateSalesLoadMoreButton();
+
+    var query = db.collection('sales').orderBy('timestamp', 'desc').limit(salesPageSize + 1);
+    if (salesQueryCache.lastDoc) query = query.startAfter(salesQueryCache.lastDoc);
     try {
         var snap = await query.get();
         var rawItems = snap.docs.map(function(d) { return { saleId: d.id, ...d.data() }; });
-        if (sp.searchTerm) { var term = sp.searchTerm.toLowerCase();
-            rawItems = rawItems.filter(function(s) { return (s.itemName || '').toLowerCase().includes(term); }); }
-        if (sp.categoryId) { var catItems = allItems.filter(function(i) { return i.categoryId === sp.categoryId; })
-                .map(function(i) { return i.id; });
-            rawItems = rawItems.filter(function(s) { return catItems.includes(s.itemId); }); }
-        if (sp.minProfitPct !== '' || sp.maxProfitPct !== '') {
-            rawItems = rawItems.filter(function(s) { var pct = s.totalAmount > 0 ? ((s.profit || 0) / s
-                    .totalAmount * 100) : 0; if (sp.minProfitPct !== '' && pct < parseFloat(sp
-                        .minProfitPct)) return false; if (sp.maxProfitPct !== '' && pct > parseFloat(sp
-                    .maxProfitPct)) return false; return true; });
-        }
         var nextCursor = null;
         if (rawItems.length > salesPageSize) {
             nextCursor = snap.docs[salesPageSize - 1];
             rawItems = rawItems.slice(0, salesPageSize);
         }
-        salesQueryCache.currentPageItems = rawItems;
-        salesPageItemsCache[salesPage] = rawItems;
-        salesPageCursors[salesPage + 1] = nextCursor;
+        salesQueryCache.currentPageItems = (salesQueryCache.currentPageItems || []).concat(rawItems);
+        salesQueryCache.lastDoc = nextCursor;
         salesQueryCache.hasMore = !!nextCursor;
     } catch (e) {
-        salesQueryCache.currentPageItems = [];
         salesQueryCache.hasMore = false;
+        showFirestoreError(e, 'تعذّر تحميل سجلات المبيعات');
+    } finally {
+        salesQueryCache.loading = false;
+        updateSalesLoadMoreButton();
     }
 }
 
 function renderSalesLog() {
-    salesPage = Math.max(0, salesPage);
-    fetchSalesPage().then(function() {
-        var currentCount = salesQueryCache.currentPageItems.length;
-        document.getElementById('salesCountLabel').textContent = currentCount > 0 ?
-            getPageRangeLabel(salesPage, salesPageSize, currentCount, 'عمليات') : 'لا توجد عمليات';
-        var tbody = document.getElementById('salesLogBody');
-        var html = '';
-        salesQueryCache.currentPageItems.forEach(function(s, i) {
-            var rowIndex = salesPage * salesPageSize + i + 1;
-            var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
-            var profitPct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount * 100) : 0;
-            html += '<tr><td>' + rowIndex + '</td><td>' + fmtDateTime(s.timestamp) + '</td><td>' +
-                escHtml(s.itemName || '--') + '</td><td>' + (s.quantity || 0) + '</td><td>' +
-                formatMoney(s.unitPrice || 0) + '</td><td>' + formatMoney(s.totalAmount || 0) +
-                '</td><td>' + formatMoney(cost) +
-                '</td><td class="' + ((s.profit || 0) >= 0 ? 'profit-positive' : 'profit-negative') + '">' + formatMoney(s.profit || 0) +
-                '</td><td><span class="badge ' + (profitPct >= 20 ? 'badge-success' : profitPct >= 0 ?
-                    'badge-warning' : 'badge-danger') + '">' + fmt(profitPct) +
-                '%</span></td><td><button onclick="viewSaleDetail(\'' + s.saleId +
-                '\')" style="background:var(--primary-light);color:var(--primary);border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;font-weight:600;margin-right:6px;">عرض</button></td></tr>';
-        });
-        if (!salesQueryCache.currentPageItems.length) html =
-            '<tr><td colspan="10" style="padding:30px;color:var(--text3);">لا توجد عمليات</td></tr>';
-        tbody.innerHTML = html;
-        renderSalesPagination();
-        renderSalesFilterRow();
+    if (!salesQueryCache.currentPageItems.length) {
+        renderSalesTable();
+        fetchSalesPage().then(renderSalesTable);
+    } else {
+        renderSalesTable();
+    }
+}
+
+function renderSalesTable() {
+    var currentCount = (salesQueryCache.currentPageItems || []).length;
+    var statusLabel = 'لا توجد عمليات';
+    if (currentCount > 0) statusLabel = 'عرض ' + currentCount + ' من السجلات';
+    else if (salesQueryCache.loading) statusLabel = 'جاري تحميل السجلات...';
+    document.getElementById('salesCountLabel').textContent = statusLabel;
+    var tbody = document.getElementById('salesLogBody');
+    tbody.innerHTML = buildSalesRowsHtml(salesQueryCache.currentPageItems || []);
+    renderSalesLoadMore();
+}
+
+function buildSalesRowsHtml(items) {
+    if (!items.length) {
+        return '<tr><td colspan="10" style="padding:30px;color:var(--text3);">لا توجد عمليات</td></tr>';
+    }
+    var html = '';
+    var lastDayKey = null;
+    items.forEach(function(s, i) {
+        var dayKey = getDayKey(s.timestamp);
+        if (dayKey !== lastDayKey) {
+            html += getDateSeparatorRowHtml(s.timestamp, 10);
+            lastDayKey = dayKey;
+        }
+        var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
+        var profitPct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount * 100) : 0;
+        html += '<tr><td>' + (i + 1) + '</td><td>' + fmtDateTime(s.timestamp) + '</td><td>' +
+            escHtml(s.itemName || '--') + '</td><td>' + (s.quantity || 0) + '</td><td>' +
+            formatMoney(s.unitPrice || 0) + '</td><td>' + formatMoney(s.totalAmount || 0) +
+            '</td><td>' + formatMoney(cost) +
+            '</td><td class="' + ((s.profit || 0) >= 0 ? 'profit-positive' : 'profit-negative') + '">' + formatMoney(s.profit || 0) +
+            '</td><td><span class="badge ' + (profitPct >= 20 ? 'badge-success' : profitPct >= 0 ?
+                'badge-warning' : 'badge-danger') + '">' + fmt(profitPct) +
+            '%</span></td><td><button onclick="viewSaleDetail(\'' + s.saleId +
+            '\')" style="background:var(--primary-light);color:var(--primary);border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;font-weight:600;margin-right:6px;">عرض</button></td></tr>';
     });
+    return html;
+}
+
+function getDateSeparatorRowHtml(ts, colspan) {
+    return '<tr><td colspan="' + colspan + '" style="padding:14px 12px;background:var(--surface);color:var(--text3);font-weight:800;border-top:1px solid var(--border);border-bottom:1px solid var(--border);text-align:center;">' + escHtml(formatDateSeparatorLabel(ts)) + '</td></tr>';
+}
+
+function renderSalesLoadMore() {
+    var row = document.getElementById('salesLoadMoreRow');
+    if (!row) return;
+    if (!salesQueryCache.hasMore && (salesQueryCache.currentPageItems || []).length > 0) {
+        row.style.display = 'none';
+        return;
+    }
+    row.style.display = 'flex';
+    updateSalesLoadMoreButton();
+}
+
+function updateSalesLoadMoreButton() {
+    var btn = document.getElementById('salesLoadMoreBtn');
+    var info = document.getElementById('salesLoadMoreInfo');
+    if (!btn || !info) return;
+    btn.disabled = !!salesQueryCache.loading || !salesQueryCache.hasMore;
+    btn.textContent = salesQueryCache.loading ? 'جاري التحميل...' : 'تحميل المزيد';
+    info.textContent = salesQueryCache.hasMore ? '' : ((salesQueryCache.currentPageItems || []).length ? 'تم تحميل جميع السجلات.' : 'لا توجد سجلات إضافية.');
+}
+
+function loadMoreSales() {
+    if (salesQueryCache.loading || !salesQueryCache.hasMore) return;
+    fetchSalesPage().then(renderSalesTable);
 }
 
 function renderSalesPagination() {
@@ -3147,11 +3292,16 @@ function resetSalesFilters() {
 
 function viewSaleDetail(saleId) {
     var s = allSales.find(function(x) { return x.saleId === saleId; });
-    if (!s && salesQueryCache.currentPageItems.length) { s = salesQueryCache.currentPageItems.find(function(x) {
-            return x.saleId === saleId; }); }
-    if (!s) { db.collection('sales').doc(saleId).get().then(function(doc) { if (doc.exists) { var data = {
-                        saleId: doc.id, ...doc.data() };
-                    renderSaleDetailModal(data); } }).catch(function() {}); return; }
+    if (!s) { s = (salesQueryCache.currentPageItems || []).find(function(x) { return x.saleId === saleId; }); }
+    if (!s) {
+        db.collection('sales').doc(saleId).get().then(function(doc) {
+            if (doc.exists) {
+                var data = { saleId: doc.id, ...doc.data() };
+                renderSaleDetailModal(data);
+            }
+        }).catch(function() {});
+        return;
+    }
     renderSaleDetailModal(s);
 }
 
@@ -3290,7 +3440,7 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
     if (document.getElementById('itemsList')) renderInventory();
     closeModalById('editSaleModal');
     showToast('تم تعديل البيع');
-    if (currentSection === 'salesLog') renderSalesLog();
+    await reloadSalesLog();
     if (currentSection === 'dashboard') renderDashboard();
 });
 
@@ -3322,9 +3472,8 @@ window.cancelSale = async function(saleId) {
     commitItemUpdate(prod);
     removeSaleLocally(saleId);
     if (document.getElementById('itemsList')) renderInventory();
-    if (currentSection === 'dashboard') renderDashboard();
     showToast('تم إلغاء البيع');
-    if (currentSection === 'salesLog') renderSalesLog();
+    await reloadSalesLog();
     if (currentSection === 'dashboard') renderDashboard();
 };
 
@@ -3941,10 +4090,8 @@ function renderSliderItems() {
                 '') + '</p>' +
             '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + (item.priority ?
                 '<span class="meta-tag"><i class="fas fa-sort-up"></i> أولوية ' + item.priority + '</span>' :
-                '') + (item.startDate ? '<span class="meta-tag"><i class="fas fa-calendar"></i> ' + new Date(
-                item.startDate).toLocaleDateString('ar') + '</span>' : '') + (item.endDate ?
-                '<span class="meta-tag"><i class="fas fa-calendar-check"></i> ' + new Date(item.endDate)
-                .toLocaleDateString('ar') + '</span>' : '') + '</div></div>' +
+                '') + (item.startDate ? '<span class="meta-tag"><i class="fas fa-calendar"></i> ' + fmtDate(item.startDate) + '</span>' : '') + (item.endDate ?
+                '<span class="meta-tag"><i class="fas fa-calendar-check"></i> ' + fmtDate(item.endDate) + '</span>' : '') + '</div></div>' +
             '<div class="slider-item-actions">' +
             '<button class="icon-btn edit-btn" data-id="' + item.id +
             '" title="تعديل"><i class="fas fa-pen"></i></button>' +
