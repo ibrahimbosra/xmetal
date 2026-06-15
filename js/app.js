@@ -310,6 +310,12 @@ function fmtMoney(n) {
     var formatted = Number(num.toFixed(2));
     return String(formatted).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1');
 }
+function fmtQty(n) {
+    var num = Number(n || 0);
+    if (isNaN(num)) return '0';
+    if (Number.isInteger(num)) return String(num);
+    return String(Number(num.toFixed(2))).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1');
+}
 function fmtInt(n) { return parseInt(n || 0, 10); }
 function fmtDate(ts) { return new Date(ts).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short',
         day: 'numeric' }); }
@@ -395,6 +401,19 @@ function formatMoneyPlain(amount) {
     var num = Number(amount || 0);
     if (displaySecondaryCurrency) return fmtMoney(num * currencySettings.exchangeRate);
     return fmtMoney(num);
+}
+
+var cairoCairoRegularWoff2Base64 = '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';
+
+function registerCairoPdfFont(doc) {
+    if (!doc || typeof doc.addFileToVFS !== 'function' || typeof doc.addFont !== 'function') return;
+    if (doc.internal && doc.internal.events && doc.internal.events['getFontList'] && doc.getFontList && doc.getFontList().Cairo) return;
+    try {
+        doc.addFileToVFS('Cairo-Regular.woff2', cairoCairoRegularWoff2Base64);
+        doc.addFont('Cairo-Regular.woff2', 'Cairo', 'normal');
+    } catch (e) {
+        console.warn('Failed to register Cairo font for PDF export:', e);
+    }
 }
 
 async function logActivity(actionType, entity, entityId, details, metadata) {
@@ -1392,22 +1411,45 @@ function exportActivityLogToCSV() {
 }
 
 function exportActivityLogToPDF() {
+    if (!window.html2pdf) {
+        showToast('❌ مكتبة html2pdf غير متاحة');
+        return;
+    }
     var items = getCurrentActivityPageItems();
-    var doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    doc.setFont('Cairo');
-    doc.setFontSize(16);
-    doc.text(formatActivityPdfTitle(), 140, 15, { align: 'center' });
-    doc.setFontSize(10);
-    doc.text('تاريخ التصدير: ' + fmtDateTime(Date.now()) + ' | عدد السجلات: ' + items.length, 14, 22);
-    doc.autoTable({
-        head: [getActivityTableHeaders()],
-        body: getActivityPdfBody(items),
-        startY: 26,
-        styles: { font: 'Cairo', fontSize: 9, halign: 'center' },
-        headStyles: { fillColor: [43, 108, 176] }
-    });
-    doc.save(getActivityPdfFileName(getActivityExportFilenameWithDate()));
-    showToast('✅ تم تنزيل PDF لسجل العمليات');
+    var headers = getActivityTableHeaders();
+    var rows = getActivityPdfBody(items);
+    var container = buildPdfExportContainer(
+        formatActivityPdfTitle(),
+        'تاريخ التصدير: ' + fmtDateTime(Date.now()) + ' | عدد السجلات: ' + items.length,
+        headers,
+        rows
+    );
+    var filename = getActivityPdfFileName(getActivityExportFilenameWithDate());
+    var exportOptions = {
+        filename: filename,
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['css', 'legacy'] }
+    };
+    function runExport() {
+        html2pdf().from(container).set(exportOptions).save().then(function() {
+            showToast('✅ تم تنزيل PDF لسجل العمليات');
+            container.remove();
+        }).catch(function(err) {
+            console.error(err);
+            showToast('❌ حدث خطأ أثناء إنشاء PDF لسجل العمليات');
+            container.remove();
+        });
+    }
+    if (document.fonts && typeof document.fonts.ready !== 'undefined') {
+        document.fonts.ready.then(function() {
+            setTimeout(runExport, 250);
+        }).catch(function() {
+            setTimeout(runExport, 250);
+        });
+    } else {
+        setTimeout(runExport, 250);
+    }
 }
 
 function getActivityExportButtonListeners() {
@@ -1471,8 +1513,15 @@ function updateProductPriceDisplay() {
 }
 function updateSellPriceDisplay() {
     var v = parseFloat(document.getElementById('sellPrice') ? document.getElementById('sellPrice').value : 0) || 0;
+    var qty = parseFloat(document.getElementById('sellQuantity') ? document.getElementById('sellQuantity').value : 0) || 0;
+    var total = Number(v) * Number(qty);
+    var mainSymbol = tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$';
+    var otherSymbol = tempSellCurrency ? '$' : currencySettings.secondaryCurrencySymbol;
+    var converted = tempSellCurrency ? convertToPrimary(v) : convertToSecondary(v);
+    var secondaryInput = document.getElementById('sellPriceSecondary');
+    if (secondaryInput) secondaryInput.value = fmtMoney(converted) + ' ' + otherSymbol;
     var el = document.getElementById('sellPriceSecondaryInfo');
-    if (el) el.innerText = getConversionDisplay(v, tempSellCurrency, currencySettings.secondaryCurrencySymbol);
+    if (el) el.innerText = 'إجمالي البيع: ' + fmtMoney(total) + ' ' + mainSymbol;
 }
 function updateEditSalePriceDisplay() {
     var v = parseFloat(document.getElementById('editPrice') ? document.getElementById('editPrice').value : 0) || 0;
@@ -1487,7 +1536,7 @@ function updatePriceLabels() {
     var epl = document.getElementById('editPriceLabel');
     if (pel) pel.innerHTML = 'سعر الشراء (' + (tempPurchaseCurrency ? sym : '$') + ')';
     if (sel) sel.innerHTML = 'سعر البيع (' + (tempSaleCurrency ? sym : '$') + ')';
-    if (spl) spl.innerHTML = 'السعر (' + (tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
+    if (spl) spl.innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
     if (epl) epl.innerHTML = 'السعر (' + (tempEditCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
 }
 function closeMobileSidebar() {
@@ -1544,12 +1593,30 @@ document.getElementById('sidebarLogoutBtn').addEventListener('click', function()
     closeMobileSidebar();
     auth.signOut();
 });
-document.getElementById('exportPdfBtn').addEventListener('click', function() { closeMobileSidebar();
-    exportToPDF(); });
+document.getElementById('exportPdfBtn').addEventListener('click', function() {
+    closeMobileSidebar();
+    showPdfExportModal();
+});
 document.getElementById('exportExcelBtn').addEventListener('click', function() { closeMobileSidebar();
     exportToCSV(); });
 document.getElementById('printReportBtn').addEventListener('click', function() { closeMobileSidebar();
     window.print(); });
+
+document.getElementById('closePdfExportModal').addEventListener('click', closePdfExportModal);
+document.getElementById('cancelPdfExportBtn').addEventListener('click', closePdfExportModal);
+document.getElementById('confirmPdfExportBtn').addEventListener('click', function() {
+    var selectedMode = document.querySelector('input[name="pdfExportType"]:checked').value;
+    if (selectedMode === 'products') {
+        exportProductsPDF();
+    } else {
+        exportSalesReportPDF();
+    }
+});
+document.querySelectorAll('input[name="pdfExportType"]').forEach(function(radio) {
+    radio.addEventListener('change', function() {
+        document.getElementById('productExportOptions').style.display = this.value === 'products' ? 'block' : 'none';
+    });
+});
 
 document.getElementById('darkToggle').addEventListener('click', function() {
     darkMode = !darkMode;
@@ -1814,8 +1881,8 @@ function filterSalesItems(items) {
         if (sp.productId && s.itemId !== sp.productId) return false;
         if (sp.minProfit !== '' && (Number(s.profit) || 0) < parseFloat(sp.minProfit)) return false;
         if (sp.maxProfit !== '' && (Number(s.profit) || 0) > parseFloat(sp.maxProfit)) return false;
-        if (sp.minQty !== '' && (Number(s.quantity) || 0) < parseInt(sp.minQty)) return false;
-        if (sp.maxQty !== '' && (Number(s.quantity) || 0) > parseInt(sp.maxQty)) return false;
+        if (sp.minQty !== '' && (Number(s.quantity) || 0) < parseFloat(sp.minQty)) return false;
+        if (sp.maxQty !== '' && (Number(s.quantity) || 0) > parseFloat(sp.maxQty)) return false;
         if (sp.searchTerm) {
             var term = sp.searchTerm.toLowerCase();
             if (!((s.itemName || '').toLowerCase().includes(term))) return false;
@@ -2184,7 +2251,7 @@ function renderMonthlyItemAddSummary(summary) {
         var currentClass = row.monthKey === currentMonthKey ? ' class="current-month-row"' : '';
         return '<tr' + currentClass + '><td>' + formatMonthKeyLabel(row.monthKey) + '</td>' +
             '<td>' + fmtInt(row.typeCount) + '</td>' +
-            '<td>' + fmtInt(row.totalPieces) + '</td>' +
+            '<td>' + fmtQty(row.totalPieces) + '</td>' +
             '<td>' + formatMoney(row.totalPurchase) + '</td>' +
             '<td>' + formatMoney(row.totalSale) + '</td></tr>';
     }).join('');
@@ -2534,7 +2601,7 @@ function addPurchaseBatchRow(batch) {
     row.style.gap = '8px';
     row.style.alignItems = 'center';
     row.innerHTML =
-        '<input type="number" class="batch-qty" min="0" step="1" value="' + (Number(batch.quantity) || 0) + '" style="width:90px;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
+        '<input type="number" class="batch-qty" min="0" step="0.01" value="' + (Number(batch.quantity) || 0) + '" style="width:90px;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
         '<input type="number" class="batch-unit" min="0" step="0.01" value="' + (Number(batch.unitCost) || 0) + '" style="width:110px;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
         '<input type="text" class="batch-supplier" placeholder="المورد" value="' + escHtml(batch.supplier || '') + '" style="flex:1;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
         '<input type="text" class="batch-note" placeholder="ملاحظة" value="' + escHtml(batch.note || '') + '" style="flex:1;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
@@ -2560,7 +2627,7 @@ function getPurchaseBatchesFromUI() {
     var rows = document.querySelectorAll('#purchaseBatchesList .purchase-batch-row');
     var batches = [];
     rows.forEach(function(r) {
-        var q = parseInt(r.querySelector('.batch-qty').value) || 0;
+        var q = parseFloat(r.querySelector('.batch-qty').value) || 0;
         var u = parseFloat(r.querySelector('.batch-unit').value) || 0;
         var s = r.querySelector('.batch-supplier').value || '';
         var n = r.querySelector('.batch-note').value || '';
@@ -2573,7 +2640,7 @@ function computeBatchesSummary() {
     var rows = document.querySelectorAll('#purchaseBatchesList .purchase-batch-row');
     var totalQty = 0, totalCost = 0;
     rows.forEach(function(r) {
-        var q = parseInt(r.querySelector('.batch-qty').value) || 0;
+        var q = parseFloat(r.querySelector('.batch-qty').value) || 0;
         var uDisplay = parseFloat(r.querySelector('.batch-unit').value) || 0;
         // convert displayed unit to primary currency for internal calc if needed
         var uPrimary = tempPurchaseCurrency ? convertToPrimary(uDisplay) : uDisplay;
@@ -2659,7 +2726,7 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     var uiBatches = getPurchaseBatchesFromUI();
     var purchase = 0;
     var storedBatches = [];
-    var qty = parseInt(document.getElementById('quantity').value) || 0;
+    var qty = parseFloat(document.getElementById('quantity').value) || 0;
     if (uiBatches && uiBatches.length) {
         var tQ = 0, tC = 0;
         uiBatches.forEach(function(b) {
@@ -2743,7 +2810,8 @@ function openSellModal(itemId) {
     document.getElementById('sellQuantity').value = 1;
     document.getElementById('sellQuantity').max = item.quantity;
     tempSellCurrency = (currencySettings.defaultSellCurrency === 'secondary');
-    document.getElementById('sellPriceLabel').innerHTML = 'السعر (' + (tempSellCurrency ? currencySettings
+    document.getElementById('sellPriceRow').classList.remove('swapped');
+    document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings
         .secondaryCurrencySymbol : '$') + ')';
     document.getElementById('sellPrice').value = tempSellCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item
         .salePrice);
@@ -2757,13 +2825,15 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
     var itemId = document.getElementById('sellForm').dataset.itemId;
     var item = allItems.find(function(i) { return i.id === itemId; });
     if (!item) return;
-    var qty = parseInt(document.getElementById('sellQuantity').value);
+    var qty = parseFloat(document.getElementById('sellQuantity').value);
     if (qty <= 0 || qty > item.quantity) return alert('كمية غير صالحة');
     var price = tempSellCurrency ? convertToPrimary(parseFloat(document.getElementById('sellPrice').value) || 0) :
         parseFloat(document.getElementById('sellPrice').value) || 0;
     var currency = tempSellCurrency ? 'secondary' : 'primary';
     var allocations = null;
     var purchasePriceAtTime = item.purchasePrice;
+    var submitBtn = document.querySelector('#sellForm button[type="submit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset._origText = submitBtn.innerText; submitBtn.innerText = 'جارٍ...'; }
     try {
         // if item has purchaseBatches, compute allocations and apply them atomically
         if (item.purchaseBatches && Array.isArray(item.purchaseBatches) && item.purchaseBatches.length) {
@@ -2781,6 +2851,7 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
             item.quantity = newQty;
         }
     } catch (err) {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = submitBtn.dataset._origText || 'تأكيد'; delete submitBtn.dataset._origText; }
         return alert('فشل البيع: ' + (err && err.message ? err.message : 'خطأ'));
     }
     var saleObj = buildSaleObject(item, qty, price, currency, purchasePriceAtTime);
@@ -2794,13 +2865,22 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
         }, { merge: true });
         window._cachedStats.allTimeProfit = (window._cachedStats.allTimeProfit || 0) + saleObj.profit;
         commitItemUpdate(item);
+        if (currentSection === 'addItem' && currentItemId === item.id) {
+            var qtyInput = document.getElementById('quantity');
+            if (qtyInput) qtyInput.value = item.quantity;
+            try { computeBatchesSummary(); } catch (e) {}
+        }
         addSaleLocally(saleObj);
         await logActivity('sell', 'sale', saleObj.saleId, 'بيع منتج: ' + item.name + '، الكمية: ' + qty + '، الربح: ' + fmt(saleObj.profit), { itemId: item.id, itemName: item.name, quantity: qty, profit: saleObj.profit });
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = submitBtn.dataset._origText || 'تأكيد'; delete submitBtn.dataset._origText; }
         closeModalById('sellModal');
         showToast('تم البيع بنجاح');
         if (document.getElementById('itemsList')) renderInventory();
         if (currentSection === 'dashboard') renderDashboard();
-    } catch (err) { alert('فشل البيع: ' + (err && err.message ? err.message : 'خطأ')); }
+    } catch (err) {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = submitBtn.dataset._origText || 'تأكيد'; delete submitBtn.dataset._origText; }
+        alert('فشل البيع: ' + (err && err.message ? err.message : 'خطأ'));
+    }
 });
 
 document.getElementById('switchPurchaseCurrency').addEventListener('click', function() {
@@ -2832,7 +2912,7 @@ document.getElementById('switchSellCurrency').addEventListener('click', function
     var v = parseFloat(inputEl.value) || 0;
     tempSellCurrency = !tempSellCurrency;
     inputEl.value = tempSellCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
-    document.getElementById('sellPriceLabel').innerHTML = 'السعر (' + (tempSellCurrency ? currencySettings
+    document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings
         .secondaryCurrencySymbol : '$') + ')';
     updateSellPriceDisplay();
 });
@@ -2848,6 +2928,9 @@ document.getElementById('switchEditCurrency').addEventListener('click', function
 document.getElementById('purchasePrice').addEventListener('input', updateProductPriceDisplay);
 document.getElementById('salePrice').addEventListener('input', updateProductPriceDisplay);
 document.getElementById('sellPrice').addEventListener('input', updateSellPriceDisplay);
+var sellQtyEl = document.getElementById('sellQuantity');
+if (sellQtyEl) sellQtyEl.addEventListener('input', updateSellPriceDisplay);
+setupSellQuantityPresets();
 document.getElementById('editPrice').addEventListener('input', updateEditSalePriceDisplay);
 document.getElementById('addSpecBtn').addEventListener('click', function() { addSpecificationRow('', ''); });
 document.getElementById('addImageBtn').addEventListener('click', function() { addImageRow('', false); });
@@ -2855,6 +2938,19 @@ document.getElementById('productDiscountEnabled').addEventListener('change', fun
     document.getElementById('discountValueGroup').style.display = document.getElementById(
         'productDiscountEnabled').checked ? 'block' : 'none';
 });
+function setupSellQuantityPresets() {
+    var buttons = document.querySelectorAll('.sell-quantity-preset');
+    buttons.forEach(function(button) {
+        button.addEventListener('click', function() {
+            var qty = parseFloat(button.dataset.qty);
+            var input = document.getElementById('sellQuantity');
+            if (!input || isNaN(qty)) return;
+            input.value = qty;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    });
+}
+
 document.getElementById('cancelItemBtn').addEventListener('click', function() { currentSection = 'inventory';
     renderCurrentSection(); });
 document.getElementById('searchItemsInput').addEventListener('input', function() { renderInventory(); });
@@ -2904,8 +3000,8 @@ async function fetchSalesPage() {
     if (sp.productId) query = query.where('itemId', '==', sp.productId);
     if (sp.minProfit !== '') query = query.where('profit', '>=', parseFloat(sp.minProfit));
     if (sp.maxProfit !== '') query = query.where('profit', '<=', parseFloat(sp.maxProfit));
-    if (sp.minQty !== '') query = query.where('quantity', '>=', parseInt(sp.minQty));
-    if (sp.maxQty !== '') query = query.where('quantity', '<=', parseInt(sp.maxQty));
+    if (sp.minQty !== '') query = query.where('quantity', '>=', parseFloat(sp.minQty));
+    if (sp.maxQty !== '') query = query.where('quantity', '<=', parseFloat(sp.maxQty));
     query = query.limit(salesPageSize + 1);
     if (salesPage > 0 && salesPageCursors[salesPage]) query = query.startAfter(salesPageCursors[salesPage]);
     try {
@@ -3011,9 +3107,9 @@ function renderSalesFilterRow() {
         '<select id="sfCategory" onchange="updateSalesFilter(\'categoryId\',this.value)">' + catOpts +
         '</select>' +
         '<input type="number" id="sfMinQty" placeholder="أقل كمية" value="' + sp.minQty +
-        '" onchange="updateSalesFilter(\'minQty\',this.value)" style="max-width:100px;">' +
+        '" step="0.01" onchange="updateSalesFilter(\'minQty\',this.value)" style="max-width:100px;">' +
         '<input type="number" id="sfMaxQty" placeholder="أعلى كمية" value="' + sp.maxQty +
-        '" onchange="updateSalesFilter(\'maxQty\',this.value)" style="max-width:100px;">' +
+        '" step="0.01" onchange="updateSalesFilter(\'maxQty\',this.value)" style="max-width:100px;">' +
         '<input type="number" id="sfMinProfit" placeholder="أقل ربح" value="' + sp.minProfit +
         '" onchange="updateSalesFilter(\'minProfit\',this.value)" style="max-width:100px;">' +
         '<input type="number" id="sfMaxProfit" placeholder="أعلى ربح" value="' + sp.maxProfit +
@@ -3111,8 +3207,8 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
     e.preventDefault();
     var saleId = document.getElementById('editSaleId').value;
     var itemId = document.getElementById('editOriginalItemId').value;
-    var oldQty = parseInt(document.getElementById('editOriginalQuantity').value);
-    var newQty = parseInt(document.getElementById('editQuantity').value);
+    var oldQty = parseFloat(document.getElementById('editOriginalQuantity').value) || 0;
+    var newQty = parseFloat(document.getElementById('editQuantity').value) || 0;
     var price = tempEditCurrency ? convertToPrimary(parseFloat(document.getElementById('editPrice').value) || 0) :
         parseFloat(document.getElementById('editPrice').value) || 0;
     var sale = allSales.find(function(s) { return s.saleId === saleId; });
@@ -4316,8 +4412,8 @@ function applySalesFiltersClient() {
             .minProfit); });
     if (sp.maxProfit !== '') filtered = filtered.filter(function(s) { return (s.profit || 0) <= parseFloat(sp
             .maxProfit); });
-    if (sp.minQty !== '') filtered = filtered.filter(function(s) { return (s.quantity || 0) >= parseInt(sp.minQty); });
-    if (sp.maxQty !== '') filtered = filtered.filter(function(s) { return (s.quantity || 0) <= parseInt(sp.maxQty); });
+    if (sp.minQty !== '') filtered = filtered.filter(function(s) { return (s.quantity || 0) >= parseFloat(sp.minQty); });
+    if (sp.maxQty !== '') filtered = filtered.filter(function(s) { return (s.quantity || 0) <= parseFloat(sp.maxQty); });
     if (sp.minProfitPct !== '' || sp.maxProfitPct !== '') {
         filtered = filtered.filter(function(s) { var pct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount *
                 100) : 0; if (sp.minProfitPct !== '' && pct < parseFloat(sp.minProfitPct)) return false; if (sp
@@ -4350,29 +4446,220 @@ function exportToCSV() {
     showToast('✅ تم تصدير CSV');
 }
 
-function exportToPDF() {
-    var filtered = applySalesFiltersClient();
+function showPdfExportModal() {
+    document.getElementById('pdfExportModal').classList.add('show');
+    document.getElementById('productExportOptions').style.display = document.querySelector('input[name="pdfExportType"]:checked').value === 'products' ? 'block' : 'none';
+}
+
+function closePdfExportModal() {
+    document.getElementById('pdfExportModal').classList.remove('show');
+}
+
+function createPdfDoc() {
     var doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    registerCairoPdfFont(doc);
+    if (typeof doc.setR2L === 'function') doc.setR2L(true);
     doc.setFont('Cairo');
-    doc.setFontSize(18);
-    doc.text('تقرير مبيعات X METAL', 140, 15, { align: 'center' });
-    doc.setFontSize(11);
-    doc.text('تاريخ التصدير: ' + fmtDateTime(Date.now()) + ' | عدد العمليات: ' + filtered.length, 14, 22);
-    var rows = filtered.map(function(s, i) { return [i + 1, fmtDateTime(s.timestamp), s.itemName || '', s
-            .quantity || 0, formatMoneyPlain(s.unitPrice || 0), formatMoneyPlain(s.totalAmount || 0),
-            formatMoneyPlain(s.profit || 0)
-        ]; });
-    doc.autoTable({
-        head: [
-            ['#', 'التاريخ', 'المنتج', 'الكمية', 'سعر الوحدة', 'الإجمالي', 'الربح']
-        ],
-        body: rows,
-        startY: 28,
-        styles: { font: 'Cairo', halign: 'center', fontSize: 10 },
-        headStyles: { fillColor: [43, 108, 176] }
+    return doc;
+}
+
+function buildPdfExportContainer(titleText, descriptionText, headers, rows) {
+    var container = document.createElement('div');
+    container.className = 'pdf-export-container';
+    container.style.direction = 'rtl';
+    container.style.fontFamily = "'Cairo', sans-serif";
+    container.style.padding = '16px';
+    container.style.position = 'absolute';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.width = '1180px';
+    container.style.backgroundColor = '#ffffff';
+    container.style.color = '#000000';
+    container.style.opacity = '0';
+    container.style.transform = 'translateX(-9999px)';
+    container.style.pointerEvents = 'none';
+    container.style.zIndex = '999999';
+    var title = document.createElement('h2');
+    title.textContent = titleText;
+    title.style.textAlign = 'right';
+    title.style.margin = '0 0 8px';
+    container.appendChild(title);
+    var info = document.createElement('div');
+    info.textContent = descriptionText;
+    info.style.textAlign = 'right';
+    info.style.marginBottom = '12px';
+    container.appendChild(info);
+    var table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.fontSize = '12px';
+    table.className = 'pdf-export-table';
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    headers.forEach(function(h) {
+        var th = document.createElement('th');
+        th.textContent = h;
+        th.style.border = '1px solid #ddd';
+        th.style.padding = '8px';
+        th.style.background = '#2b6fb0';
+        th.style.color = '#fff';
+        th.style.textAlign = 'center';
+        headerRow.appendChild(th);
     });
-    doc.save('xmetal_report_' + new Date().toISOString().split('T')[0] + '.pdf');
-    showToast('✅ تم تنزيل PDF');
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    rows.forEach(function(row) {
+        var tr = document.createElement('tr');
+        row.forEach(function(cell) {
+            var td = document.createElement('td');
+            td.textContent = cell;
+            td.style.border = '1px solid #eee';
+            td.style.padding = '8px';
+            td.style.textAlign = 'center';
+            td.style.whiteSpace = 'normal';
+            td.style.wordBreak = 'break-word';
+            td.style.overflowWrap = 'anywhere';
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    var style = document.createElement('style');
+    style.textContent = '\n        .pdf-export-table { border-collapse: collapse; width: 100%; }\n        .pdf-export-table th, .pdf-export-table td { word-break: break-word; white-space: normal; }\n        .pdf-export-container { font-family: Cairo, sans-serif; }\n    ';
+    container.appendChild(style);
+    container.appendChild(table);
+    document.body.appendChild(container);
+    return container;
+}
+
+function exportSalesReportPDF() {
+    if (!window.html2pdf) {
+        showToast('❌ مكتبة html2pdf غير متاحة');
+        return;
+    }
+    var filtered = applySalesFiltersClient();
+    var rows = filtered.map(function(s, i) {
+        return [
+            i + 1,
+            fmtDateTime(s.timestamp),
+            s.itemName || '',
+            s.quantity || 0,
+            formatMoneyPlain(s.unitPrice || 0),
+            formatMoneyPlain(s.totalAmount || 0),
+            formatMoneyPlain(s.profit || 0)
+        ];
+    });
+    var headers = ['#', 'التاريخ', 'المنتج', 'الكمية', 'سعر الوحدة', 'الإجمالي', 'الربح'];
+    var container = buildPdfExportContainer(
+        'تقرير مبيعات X METAL',
+        'تاريخ التصدير: ' + fmtDateTime(Date.now()) + ' | عدد العمليات: ' + filtered.length,
+        headers,
+        rows
+    );
+    var filename = 'xmetal_sales_report_' + new Date().toISOString().split('T')[0] + '.pdf';
+    var exportOptions = {
+        filename: filename,
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['css', 'legacy'] }
+    };
+    function runExport() {
+        html2pdf().from(container).set(exportOptions).save().then(function() {
+            showToast('✅ تم تنزيل PDF');
+            container.remove();
+        }).catch(function(err) {
+            console.error(err);
+            showToast('❌ حدث خطأ أثناء إنشاء PDF');
+            container.remove();
+        });
+    }
+    if (document.fonts && typeof document.fonts.ready !== 'undefined') {
+        document.fonts.ready.then(function() {
+            setTimeout(runExport, 250);
+        }).catch(function() {
+            setTimeout(runExport, 250);
+        });
+    } else {
+        setTimeout(runExport, 250);
+    }
+}
+
+function exportProductsPDF() {
+    if (!window.html2pdf) {
+        showToast('❌ مكتبة html2pdf غير متاحة');
+        return;
+    }
+    var selectedScope = document.querySelector('input[name="productExportScope"]:checked').value;
+    var selectedFields = Array.from(document.querySelectorAll('#pdfExportModal input[data-export-field]:checked')).map(function(input) {
+        return input.getAttribute('data-export-field');
+    });
+    if (!selectedFields.length) {
+        showToast('⚠️ اختر حقلًا واحدًا على الأقل للتصدير');
+        return;
+    }
+    var items = allItems.slice();
+    if (selectedScope === 'available') {
+        items = items.filter(function(i) { return Number(i.quantity) > 0; });
+    }
+    if (!items.length) {
+        showToast('⚠️ لا توجد منتجات مطابقة للتصدير');
+        return;
+    }
+    var headers = ['#', 'اسم المنتج'];
+    if (selectedFields.includes('categoryName')) headers.push('الفئة');
+    if (selectedFields.includes('purchasePrice')) headers.push('سعر الشراء');
+    if (selectedFields.includes('salePrice')) headers.push('سعر البيع');
+    if (selectedFields.includes('quantity')) headers.push('الكمية');
+    if (selectedFields.includes('profitMargin')) headers.push('نسبة الربح');
+    if (selectedFields.includes('secondaryPrice')) headers.push('السعر بالعملة الثانوية');
+    var rows = items.map(function(item, index) {
+        var row = [index + 1, item.name || ''];
+        if (selectedFields.includes('categoryName')) row.push(item.categoryName || '');
+        if (selectedFields.includes('purchasePrice')) row.push('$' + fmtMoney(item.purchasePrice));
+        if (selectedFields.includes('salePrice')) row.push('$' + fmtMoney(item.salePrice));
+        if (selectedFields.includes('quantity')) row.push(item.quantity || 0);
+        if (selectedFields.includes('profitMargin')) row.push(calcProfitMarginPct(item.purchasePrice, item.salePrice) + '%');
+        if (selectedFields.includes('secondaryPrice')) row.push(fmtMoney(convertToSecondary(item.salePrice)) + ' ' + currencySettings.secondaryCurrencySymbol);
+        return row;
+    });
+    var container = buildPdfExportContainer(
+        'تقرير المنتجات',
+        'نطاق التصدير: ' + (selectedScope === 'available' ? 'المنتجات المتوفرة فقط' : 'كل المنتجات'),
+        headers,
+        rows
+    );
+    var filename = 'xmetal_products_' + new Date().toISOString().split('T')[0] + '.pdf';
+    var exportOptions = {
+        filename: filename,
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['css', 'legacy'] }
+    };
+    function runExport() {
+        html2pdf().from(container).set(exportOptions).save().then(function() {
+            closePdfExportModal();
+            showToast('✅ تم تنزيل PDF');
+            container.remove();
+        }).catch(function(err) {
+            console.error(err);
+            showToast('❌ حدث خطأ أثناء إنشاء PDF');
+            container.remove();
+        });
+    }
+    if (document.fonts && typeof document.fonts.ready !== 'undefined') {
+        document.fonts.ready.then(function() {
+            setTimeout(runExport, 250);
+        }).catch(function() {
+            setTimeout(runExport, 250);
+        });
+    } else {
+        setTimeout(runExport, 250);
+    }
+}
+
+function exportToPDF() {
+    exportSalesReportPDF();
 }
 
 document.addEventListener('keydown', function(e) {

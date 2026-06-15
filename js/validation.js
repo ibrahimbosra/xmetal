@@ -23,8 +23,8 @@ const ValidationRules = {
         required: true,
         min: 0,
         max: 1000000,
-        pattern: /^\d+$/,
-        message: 'الكمية يجب أن تكون رقماً صحيحاً'
+        pattern: /^\d+(\.\d{1,2})?$/,
+        message: 'الكمية يجب أن تكون رقماً موجباً ويمكن أن تحتوي على كسور حتى منزلتين'
     },
     
     email: {
