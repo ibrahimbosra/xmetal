@@ -137,16 +137,27 @@
                             <div class="form-group"><label id="salePriceLabel">سعر البيع ($)</label><div class="input-wrapper special"><i class="fas fa-dollar-sign"></i><input type="number" id="salePrice" step="0.01" min="0" required><button type="button" class="currency-switch" id="switchSaleCurrency">تبديل</button></div><div id="salePriceSecondary" class="currency-info"></div></div>
                             <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="quantity" min="0" step="0.01" required></div></div>
                             <div class="form-group"><label>الفئة</label><div class="input-wrapper"><i class="fas fa-list"></i><select id="productCategoryId"><option value="">-- بدون فئة --</option></select></div></div>
+                        </div>
+                        <!-- Advanced toggle: lazy-load secondary fields to improve performance -->
+                        <div style="margin-top:12px;display:flex;align-items:center;justify-content:flex-start;gap:10px;">
+                            <button type="button" id="advancedToggleBtn" class="action-btn" style="display:flex;align-items:center;gap:8px;">خيارات إضافية <i id="advancedChevron" class="fas fa-chevron-down" style="font-size:0.9rem;"></i></button>
+                            <small id="advancedHint" style="color:var(--text3);">عرض الإعدادات المتقدمة عند الحاجة (Lazy load)</small>
+                        </div>
+
+                        <div id="advancedContainer"></div>
+
+                        <!-- Template for advanced fields (not instantiated until user opens advanced options) -->
+                        <template id="advancedProductTemplate">
                             <div class="form-group full-width"><label>وصف المنتج</label><textarea id="productDescription" rows="2" style="width:100%;padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;background:#f8fafc;color:var(--text);"></textarea></div>
                             <div class="form-group full-width"><label>رابط يوتيوب</label><div class="input-wrapper"><i class="fab fa-youtube"></i><input type="url" id="productYoutubeUrl" placeholder="https://youtube.com/..."></div></div>
                             <div class="form-group full-width"><label>الخصائص</label><div id="specificationsContainer"></div><button type="button" id="addSpecBtn" class="action-btn" style="margin-top:4px;">+ إضافة خاصية</button></div>
                             <div class="form-group full-width"><label>الصور (روابط)</label><div id="imagesContainer"></div><button type="button" id="addImageBtn" class="action-btn">+ إضافة صورة</button></div>
-                        </div>
-                        <div class="toggle-row"><span>مخفي للزبائن</span><label><input type="checkbox" id="productHidden"></label></div>
-                        <div class="toggle-row"><span>كمية محدودة</span><label><input type="checkbox" id="productLimitedQty"></label></div>
-                        <div class="toggle-row"><span>تفعيل الخصم</span><label><input type="checkbox" id="productDiscountEnabled"></label></div>
-                        <div class="form-group" id="discountValueGroup" style="display:none"><label>قيمة الخصم (%)</label><div class="input-wrapper"><input type="number" id="productDiscountValue" step="0.1" min="0" max="100"></div></div>
-                        <div class="toggle-row"><span>إظهار السعر للزبائن</span><label><input type="checkbox" id="productShowPrice"></label></div>
+                            <div class="toggle-row"><span>مخفي للزبائن</span><label><input type="checkbox" id="productHidden"></label></div>
+                            <div class="toggle-row"><span>كمية محدودة</span><label><input type="checkbox" id="productLimitedQty"></label></div>
+                            <div class="toggle-row"><span>تفعيل الخصم</span><label><input type="checkbox" id="productDiscountEnabled"></label></div>
+                            <div class="form-group" id="discountValueGroup" style="display:none"><label>قيمة الخصم (%)</label><div class="input-wrapper"><input type="number" id="productDiscountValue" step="0.1" min="0" max="100"></div></div>
+                            <div class="toggle-row"><span>إظهار السعر للزبائن</span><label><input type="checkbox" id="productShowPrice"></label></div>
+                        </template>
                         <div class="form-actions">
                             <button type="button" id="cancelItemBtn" class="cancel-btn">إلغاء</button>
                             <button type="submit" class="save-btn">حفظ</button>
@@ -156,11 +167,13 @@
             </div>
 
             <div class="section-panel" id="section-salesLog">
-                <div class="filter-row" id="salesFilterRow"></div>
-                <div class="table-container">
+                    <div class="table-container">
                     <div class="table-header"><h3>📋 سجل المبيعات</h3><span id="salesCountLabel" class="text-muted" style="font-size:0.75rem;color:var(--text3);"></span></div>
                     <div class="table-scroll"><table><thead><tr><th>#</th><th>التاريخ</th><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>التكلفة</th><th>الربح</th><th>نسبة الربح</th><th>الإجراءات</th></tr></thead><tbody id="salesLogBody"></tbody></table></div>
-                    <div class="pagination" id="salesPagination"></div>
+                    <div class="load-more-row" id="salesLoadMoreRow" style="display:flex;justify-content:center;align-items:center;gap:10px;padding:14px 0;">
+                        <button class="btn-sm" id="salesLoadMoreBtn" type="button" onclick="loadMoreSales()">تحميل المزيد</button>
+                        <span id="salesLoadMoreInfo" style="color:var(--text3);font-size:0.85rem;"></span>
+                    </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
                     <button class="btn-sm outline" id="archiveSalesBtn">أرشفة السجلات القديمة</button>
@@ -169,11 +182,13 @@
             </div>
 
             <div class="section-panel" id="section-activityLog">
-                <div class="filter-row" id="activityFilterRow"></div>
-                <div class="table-container">
+                    <div class="table-container">
                     <div class="table-header"><h3>📝 سجل العمليات</h3><span id="activityCountLabel" class="text-muted" style="font-size:0.75rem;color:var(--text3);"></span><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;"><button class="btn-sm outline" id="exportActivityCsvBtn">تصدير CSV</button><button class="btn-sm outline" id="exportActivityPdfBtn">تصدير PDF</button></div></div>
                     <div class="table-scroll"><table><thead><tr><th>#</th><th>التاريخ</th><th>الإجراء</th><th>الكيان</th><th>التفاصيل</th><th>المستخدم</th><th>عرض</th></tr></thead><tbody id="activityLogBody"></tbody></table></div>
-                    <div class="pagination" id="activityPagination"></div>
+                    <div class="load-more-row" id="activityLoadMoreRow" style="display:flex;justify-content:center;align-items:center;gap:10px;padding:14px 0;">
+                        <button class="btn-sm" id="activityLoadMoreBtn" type="button" onclick="loadMoreActivity()">تحميل المزيد</button>
+                        <span id="activityLoadMoreInfo" style="color:var(--text3);font-size:0.85rem;"></span>
+                    </div>
                 </div>
             </div>
 
