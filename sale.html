@@ -1,0 +1,1574 @@
+=<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>X METAL ADMIN</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js">
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js">
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js">
+    </script>
+    <style>
+        :root {
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface2: #f8fafc;
+            --surface3: #f1f5f9;
+            --border: #e2e8f0;
+            --border2: #edf2f9;
+            --text: #1e2b3c;
+            --text2: #334155;
+            --text3: #5f6c84;
+            --text4: #6f7d95;
+            --muted: #94a3b8;
+            --shadow: rgba(0, 0, 0, 0.08);
+            --modal-overlay: rgba(0, 0, 0, 0.6);
+            --accent: #4a6fa5;
+            --accent-light: #eef2ff;
+            --green: #27ae60;
+            --red: #e55353;
+            --red-bg: #ffeae8;
+            --red-text: #c23321;
+            --orange: #f97316;
+            --orange-bg: #fffaf0;
+            --profit-green: #1e7b4c;
+            --profit-red: #b53b3b;
+            --meta-bg: #f0f4fa;
+            --price-bg: #f8fafd;
+            --price-border: #eef2f6;
+            --dash: #d0d9e8;
+            --switch-bg: #eef2f6;
+            --scroll-thumb: #cbd5e0;
+            --scroll-thumb-hover: #94a3b8;
+            --login-bg: #f1f5f9;
+        }
+
+        body.dark-mode {
+            --bg: #111318;
+            --surface: #1c1f26;
+            --surface2: #23262e;
+            --surface3: #1a1d24;
+            --border: #2d3139;
+            --border2: #2a2e36;
+            --text: #e2e8f0;
+            --text2: #cbd5e0;
+            --text3: #a0aec0;
+            --text4: #8891a0;
+            --muted: #64748b;
+            --shadow: rgba(0, 0, 0, 0.35);
+            --modal-overlay: rgba(0, 0, 0, 0.75);
+            --accent: #6b8fc5;
+            --accent-light: #1e293b;
+            --green: #2ecc71;
+            --red: #e74c3c;
+            --red-bg: #2d1a1a;
+            --red-text: #f87171;
+            --orange: #f97316;
+            --orange-bg: #2d2016;
+            --profit-green: #4ade80;
+            --profit-red: #f87171;
+            --meta-bg: #1e293b;
+            --price-bg: #1a1f28;
+            --price-border: #2a2e36;
+            --dash: #374151;
+            --switch-bg: #2d3139;
+            --scroll-thumb: #374151;
+            --scroll-thumb-hover: #4b5563;
+            --login-bg: #111318;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Cairo', sans-serif;
+        }
+        body {
+            background: var(--bg);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.3s;
+        }
+        .login-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--login-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 5000;
+            backdrop-filter: blur(2px);
+            transition: background 0.3s;
+        }
+        .login-card {
+            background: var(--surface);
+            max-width: 400px;
+            width: 90%;
+            border-radius: 36px;
+            padding: 32px 24px;
+            box-shadow: 0 20px 35px var(--shadow);
+            text-align: center;
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+        .login-card h2 {
+            font-size: 1.8rem;
+            color: var(--text);
+            margin-bottom: 8px;
+        }
+        .login-card p {
+            color: var(--text3);
+            margin-bottom: 28px;
+            font-size: 0.9rem;
+        }
+        .login-input-group {
+            margin-bottom: 18px;
+            position: relative;
+        }
+        .login-input-group i {
+            position: absolute;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 1.1rem;
+        }
+        .login-input-group input {
+            width: 100%;
+            padding: 14px 50px 14px 18px;
+            border: 1px solid var(--border);
+            border-radius: 40px;
+            font-size: 1rem;
+            outline: none;
+            transition: 0.2s;
+            background: var(--surface2);
+            color: var(--text);
+        }
+        .login-input-group input:focus {
+            border-color: var(--accent);
+            background: var(--surface);
+            box-shadow: 0 0 0 3px rgba(74, 111, 165, 0.15);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--green);
+            border: none;
+            border-radius: 40px;
+            color: white;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 8px;
+        }
+        .login-btn:active {
+            transform: scale(0.97);
+        }
+        .login-error {
+            color: #e74c3c;
+            font-size: 0.8rem;
+            margin-top: 12px;
+            display: none;
+        }
+        .app-main {
+            width: 100%;
+            max-width: 550px;
+            height: 100%;
+            background: var(--surface);
+            box-shadow: 0 0 25px var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border-radius: 28px 28px 0 0;
+            position: relative;
+            transition: background 0.3s;
+        }
+        .connection-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 2000;
+            background: #1e2b3c;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .app-header {
+            background: var(--surface);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border2);
+            transition: background 0.3s;
+        }
+        .search-box {
+            flex: 1;
+            position: relative;
+        }
+        .search-box i {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+        }
+        .search-box input {
+            width: 100%;
+            padding: 12px 40px 12px 15px;
+            border: 1px solid var(--border);
+            border-radius: 40px;
+            background: var(--surface2);
+            font-size: 0.9rem;
+            color: var(--text);
+            transition: background 0.3s, border 0.3s;
+        }
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: var(--surface);
+        }
+        .header-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--surface3);
+            border: none;
+            color: var(--text2);
+            font-size: 1.3rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .header-btn.primary {
+            background: var(--green);
+            color: white;
+        }
+        .header-btn.dark-toggle {
+            background: var(--surface3);
+            color: var(--text2);
+            font-size: 1.2rem;
+        }
+        .header-btn:active {
+            transform: scale(0.94);
+            background: var(--border);
+        }
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            background: var(--surface);
+            padding: 8px 12px;
+            border-radius: 60px;
+            margin: 8px 12px 0;
+            box-shadow: 0 2px 6px var(--shadow);
+            transition: background 0.3s;
+        }
+        .filter-btn {
+            flex: 1;
+            background: var(--surface3);
+            border: none;
+            border-radius: 40px;
+            padding: 8px 0;
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: var(--text2);
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .filter-btn.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .items-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 12px;
+            background: var(--surface2);
+            direction: ltr;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            scroll-behavior: smooth;
+            transition: background 0.3s;
+        }
+        .items-wrapper {
+            direction: rtl;
+        }
+        .items-container::-webkit-scrollbar {
+            width: 5px;
+        }
+        .items-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .items-container::-webkit-scrollbar-thumb {
+            background: var(--scroll-thumb);
+            border-radius: 10px;
+        }
+        .items-container::-webkit-scrollbar-thumb:hover {
+            background: var(--scroll-thumb-hover);
+        }
+        .items-container {
+            scrollbar-width: thin;
+            scrollbar-color: var(--scroll-thumb) transparent;
+        }
+
+        .product-card {
+            background: var(--surface);
+            border-radius: 24px;
+            padding: 16px;
+            box-shadow: 0 4px 12px var(--shadow);
+            border: 1px solid var(--border2);
+            transition: 0.2s;
+            position: relative;
+        }
+        .product-card.low-stock {
+            border-right: 6px solid var(--orange);
+            background: var(--orange-bg);
+        }
+        .product-card.out-of-stock {
+            border-right: 6px solid #ef4444;
+            background: #fef2f2;
+        }
+        body.dark-mode .product-card.out-of-stock {
+            background: #2d1a1a;
+        }
+        .product-index-outer {
+            position: absolute;
+            right: -15px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1rem;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+            border: 2px solid white;
+            z-index: 2;
+        }
+        body.dark-mode .product-index-outer {
+            border-color: #1c1f26;
+        }
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            gap: 8px;
+        }
+        .product-title {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+            flex: 1;
+        }
+        .product-name {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: var(--text);
+            word-break: break-word;
+            line-height: 1.3;
+        }
+        .product-meta-wrapper {
+            display: flex;
+            gap: 5px;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        .product-meta {
+            display: flex;
+            gap: 6px;
+            font-size: 0.75rem;
+            background: var(--meta-bg);
+            padding: 4px 10px;
+            border-radius: 30px;
+            white-space: nowrap;
+            flex-shrink: 0;
+            align-items: center;
+            color: var(--text2);
+            transition: background 0.3s;
+        }
+        .product-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .profit-badge-small {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .profit-positive {
+            color: var(--profit-green);
+        }
+        .profit-negative {
+            color: var(--profit-red);
+        }
+        .eye-icon {
+            background: var(--accent-light);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            color: var(--accent);
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .eye-icon:hover {
+            background: var(--accent);
+            color: white;
+            transform: scale(1.05);
+        }
+        .price-row {
+            display: flex;
+            background: var(--price-bg);
+            border-radius: 20px;
+            padding: 12px 0;
+            margin: 8px 0;
+            border: 1px solid var(--price-border);
+            transition: background 0.3s, border 0.3s;
+        }
+        .price-col {
+            flex: 1;
+            text-align: center;
+            border-left: 1px dashed var(--dash);
+        }
+        .price-col:last-child {
+            border-left: none;
+        }
+        .price-label {
+            font-size: 0.7rem;
+            color: var(--text4);
+            text-transform: uppercase;
+        }
+        .primary-price {
+            font-weight: 800;
+            font-size: 1rem;
+        }
+        .purchase-price .primary-price {
+            color: var(--red);
+        }
+        .sale-price .primary-price {
+            color: #2e9a5e;
+        }
+        body.dark-mode .sale-price .primary-price {
+            color: #4ade80;
+        }
+        .secondary-price {
+            font-size: 0.7rem;
+            color: var(--text3);
+        }
+        .blur-price {
+            filter: blur(5px);
+            user-select: none;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .action-btn {
+            flex: 1;
+            padding: 10px 0;
+            border: none;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: #f0f4fc;
+            color: #2d3a4f;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        body.dark-mode .action-btn {
+            background: #1e293b;
+            color: #cbd5e0;
+        }
+        .action-btn.sell {
+            background: var(--green);
+            color: white;
+        }
+        .action-btn.sell:disabled {
+            background: #cbd5e0;
+            color: #94a3b8;
+        }
+        body.dark-mode .action-btn.sell:disabled {
+            background: #374151;
+            color: #64748b;
+        }
+        .action-btn.edit {
+            background: #e3efff;
+            color: #1e5f9e;
+        }
+        body.dark-mode .action-btn.edit {
+            background: #1e3050;
+            color: #6b9fd4;
+        }
+        .action-btn.delete {
+            background: var(--red-bg);
+            color: var(--red-text);
+            transition: 0.2s;
+        }
+        .action-btn.cancel-delete {
+            background: var(--green);
+            color: white;
+        }
+        .action-btn.confirm-delete {
+            background: #ef4444;
+            color: white;
+            animation: pulse 0.6s ease-in-out;
+        }
+        @keyframes pulse {
+            0%,
+            100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.04);
+            }
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--modal-overlay);
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            padding: 12px;
+        }
+        .modal-content {
+            background: var(--surface);
+            border-radius: 36px;
+            width: 100%;
+            max-width: 480px;
+            /* limit height to viewport and enable scrolling only when needed */
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            transition: background 0.3s;
+            -webkit-overflow-scrolling: touch;
+        }
+        .modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        .modal-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .modal-content::-webkit-scrollbar-thumb {
+            background: var(--scroll-thumb);
+            border-radius: 10px;
+        }
+        .modal-content::-webkit-scrollbar-thumb:hover {
+            background: var(--scroll-thumb-hover);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .modal-header h2 {
+            font-size: 1.3rem;
+            color: var(--text);
+        }
+        .close-modal {
+            background: none;
+            border: none;
+            font-size: 2rem;
+            line-height: 1;
+            cursor: pointer;
+            color: var(--muted);
+        }
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 0.8rem;
+            color: var(--text2);
+        }
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 30px;
+            transition: 0.2s;
+        }
+        .input-wrapper:focus-within {
+            border-color: var(--accent);
+            background: var(--surface);
+            box-shadow: 0 0 0 3px rgba(74, 111, 165, 0.1);
+        }
+        .input-wrapper i {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 0.95rem;
+            z-index: 1;
+        }
+        .input-wrapper input {
+            width: 100%;
+            padding: 12px 46px 12px 16px;
+            border: none;
+            background: transparent;
+            font-size: 0.9rem;
+            border-radius: 30px;
+            outline: none;
+            color: var(--text);
+        }
+        .input-wrapper.special {
+            padding-left: 56px;
+            padding-right: 46px;
+        }
+
+        /* Purchase batches row styling */
+        .purchase-batch-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .purchase-batch-row input {
+            height: 36px;
+            padding: 6px 8px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text);
+            min-width: 0;
+        }
+        .purchase-batch-row .batch-qty { width: 70px; }
+        .purchase-batch-row .batch-unit { width: 90px; }
+        .purchase-batch-row .batch-supplier { flex: 1; min-width: 80px; }
+        .purchase-batch-row .batch-note { flex: 1; min-width: 80px; }
+        .purchase-batch-row .remove-batch {
+            background: var(--red-bg);
+            color: var(--red-text);
+            border: none;
+            padding: 6px 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+        .purchase-batch-row .remove-batch:active { transform: scale(0.98); }
+        .currency-switch {
+            position: absolute;
+            left: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--switch-bg);
+            border: none;
+            border-radius: 30px;
+            width: 40px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            color: var(--text2);
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .currency-info {
+            font-size: 0.7rem;
+            color: var(--text3);
+            margin-top: 3px;
+            padding: 0 6px;
+            min-height: 1em;
+        }
+        .form-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 18px;
+        }
+        .save-btn {
+            background: var(--green);
+            color: white;
+        }
+        .cancel-btn {
+            background: var(--surface3);
+            color: var(--text);
+        }
+        .save-btn,
+        .cancel-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 40px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .empty-state {
+            text-align: center;
+            color: var(--muted);
+            padding: 30px;
+        }
+        .scroll-to-top-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 20px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            z-index: 2500;
+            transition: opacity 0.3s, transform 0.3s;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .scroll-to-top-btn.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body class="dark-mode">
+    <div id="loginContainer" class="login-container">
+        <div class="login-card">
+            <i class="fas fa-store" style="font-size: 48px; color: #27ae60; margin-bottom: 12px;"></i>
+            <h2>تسجيل الدخول</h2>
+            <p>أدخل بياناتك للوصول إلى لوحة الإدارة</p>
+            <div class="login-input-group">
+                <i class="fas fa-envelope"></i>
+                <input type="email" id="loginEmail" placeholder="البريد الإلكتروني">
+            </div>
+            <div class="login-input-group">
+                <i class="fas fa-lock"></i>
+                <input type="password" id="loginPassword" placeholder="كلمة المرور">
+            </div>
+            <button id="doLoginBtn" class="login-btn">دخول <i class="fas fa-arrow-left"></i></button>
+            <div id="loginErrorMsg" class="login-error"></div>
+        </div>
+    </div>
+
+    <div id="appMain" class="app-main" style="display: none;">
+        <div class="connection-status" id="connectionStatus" style="display: none;"></div>
+        <div class="app-header">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="بحث...">
+            </div>
+            <button class="header-btn dark-toggle" id="darkModeToggle" title="تبديل الوضع الليلي">
+                <i class="fas fa-moon"></i>
+            </button>
+            <button class="header-btn primary" id="addItemBtn"><i class="fas fa-plus"></i></button>
+        </div>
+        <div class="filter-bar">
+            <button class="filter-btn active" data-filter="all">الكل</button>
+            <button class="filter-btn" data-filter="available">المتوفرة</button>
+            <button class="filter-btn" data-filter="outofstock">المنتهية</button>
+        </div>
+        <div class="items-container" id="itemsContainer">
+            <div id="itemsList" class="items-wrapper"></div>
+        </div>
+        <button class="scroll-to-top-btn" id="scrollToTopBtn" title="العودة للأعلى">
+            <i class="fas fa-arrow-up"></i>
+        </button>
+
+        <div class="modal" id="itemModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modalTitle">إضافة قطعة</h2>
+                    <button class="close-modal closeModalBtn">&times;</button>
+                </div>
+                <form id="itemForm">
+                    <div class="form-group">
+                        <label>الاسم *</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-tag"></i>
+                            <input type="text" id="itemName" required autofocus>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label id="purchasePriceLabel">سعر الشراء ($)</label>
+                        <div class="input-wrapper special">
+                            <i class="fas fa-dollar-sign"></i>
+                            <input type="number" id="purchasePrice" step="0.01" min="0" required>
+                            <button type="button" class="currency-switch" id="switchPurchaseCurrency">تبديل</button>
+                        </div>
+                        <div id="purchasePriceSecondary" class="currency-info"></div>
+                        <div id="purchaseBatchesContainer" style="margin-top:10px;background:var(--surface);padding:10px;border-radius:12px;border:1px solid var(--border);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
+                                <strong>دفعات الشراء</strong>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <div style="font-size:0.85rem;color:var(--text3);">إجمالي الكمية: <span id="batchesTotalQty">0</span></div>
+                                    <div style="font-size:0.85rem;color:var(--text3);">إجمالي التكلفة: <span id="batchesTotalCost">0</span></div>
+                                    <button type="button" id="addPurchaseBatchBtn" class="action-btn">+ إضافة دفعة</button>
+                                </div>
+                            </div>
+                            <div id="purchaseBatchesList" style="display:flex;flex-direction:column;gap:8px;"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label id="salePriceLabel">سعر البيع ($)</label>
+                        <div class="input-wrapper special">
+                            <i class="fas fa-dollar-sign"></i>
+                            <input type="number" id="salePrice" step="0.01" min="0" required>
+                            <button type="button" class="currency-switch" id="switchSaleCurrency">تبديل</button>
+                        </div>
+                        <div id="salePriceSecondary" class="currency-info"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>الكمية</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-cubes"></i>
+                            <input type="number" id="quantity" min="0" step="0.01" required>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" id="cancelItemBtn" class="cancel-btn">إلغاء</button>
+                        <button type="submit" class="save-btn">حفظ</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="modal" id="sellModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>بيع</h2>
+                    <button class="close-modal closeModalBtn">&times;</button>
+                </div>
+                <form id="sellForm">
+                    <div class="form-group">
+                        <label>المنتج: <span id="sellProductName"></span></label>
+                    </div>
+                    <div class="form-group">
+                        <label>الكمية</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-cubes"></i>
+                            <input type="number" id="sellQuantity" min="0.01" step="0.01" required>
+                        </div>
+                        <div class="quantity-presets" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"><button type="button" class="sell-quantity-preset" data-qty="0.25">0.25</button><button type="button" class="sell-quantity-preset" data-qty="0.5">0.5</button><button type="button" class="sell-quantity-preset" data-qty="1">1</button><button type="button" class="sell-quantity-preset" data-qty="1.5">1.5</button><button type="button" class="sell-quantity-preset" data-qty="2">2</button><button type="button" class="sell-quantity-preset" data-qty="3">3</button><button type="button" class="sell-quantity-preset" data-qty="4">4</button><button type="button" class="sell-quantity-preset" data-qty="5">5</button></div>
+                    </div>
+                    <div class="form-group">
+                        <label id="sellPriceLabel">السعر للقطعة ($)</label>
+                        <div class="sell-price-row" id="sellPriceRow">
+                            <div class="sell-price-field sell-price-main">
+                                <input type="number" id="sellPrice" step="0.01" required>
+                            </div>
+                            <button type="button" class="currency-switch sell-price-switch" id="switchSellCurrency">⇄</button>
+                            <div class="sell-price-field sell-price-secondary">
+                                <input type="text" id="sellPriceSecondary" readonly>
+                            </div>
+                        </div>
+                        <div id="sellPriceSecondaryInfo" class="currency-info"></div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" id="cancelSellBtn" class="cancel-btn">إلغاء</button>
+                        <button type="submit" class="save-btn">تأكيد</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBeJ0sbdCqz60a-yqzuZSt6QstDhR3TRtM",
+            authDomain: "profit-zone-e03c6.firebaseapp.com",
+            projectId: "profit-zone-e03c6",
+            storageBucket: "profit-zone-e03c6.firebasestorage.app",
+            messagingSenderId: "306955059136",
+            appId: "1:306955059136:web:a450be9721f4a2db0d1225"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        db.enablePersistence().catch(() => console.warn("offline mode"));
+
+        let items = [],
+            sales = [],
+            activityLog = [],
+            categories = [];
+        let currencySettings = {
+            secondaryCurrencyName: "ريال سعودي",
+            secondaryCurrencySymbol: "﷼",
+            exchangeRate: 3.75,
+            defaultInputCurrency: "primary",
+            defaultSellCurrency: "primary"
+        };
+        let currentItemId = null,
+            isEditing = false;
+        let tempPurchaseCurrency = false,
+            tempSaleCurrency = false,
+            tempSellCurrency = false;
+        let itemVisibility = {};
+        let currentFilter = "all";
+        let pendingDeleteId = null;
+
+        // Dark mode
+        function applyDarkMode(isDark) {
+            if (isDark) {
+                document.body.classList.add('dark-mode');
+                document.getElementById('darkModeToggle').innerHTML = '<i class="fas fa-sun"></i>';
+            } else {
+                document.body.classList.remove('dark-mode');
+                document.getElementById('darkModeToggle').innerHTML = '<i class="fas fa-moon"></i>';
+            }
+            localStorage.setItem('darkMode', isDark ? '1' : '0');
+        }
+        const savedDark = localStorage.getItem('darkMode');
+        if (savedDark === '0') {
+            applyDarkMode(false);
+        } else {
+            applyDarkMode(true);
+        }
+        document.getElementById('darkModeToggle').addEventListener('click', () => {
+            const isDark = document.body.classList.contains('dark-mode');
+            applyDarkMode(!isDark);
+        });
+
+        function arabicAlphabeticalComparator(a, b) {
+            return a.name.localeCompare(b.name, 'ar', { sensitivity: 'variant', usage: 'sort' });
+        }
+
+        function filterAndSortProducts(term, stockFilter) {
+            let filtered = [...items];
+            const hasSearch = term && term.trim() !== "";
+            if (hasSearch) {
+                const searchTerm = term.trim();
+                filtered = filtered.filter(product => product.name.includes(searchTerm));
+                filtered.forEach(product => {
+                    let priority = 3;
+                    const name = product.name;
+                    if (name.startsWith(searchTerm)) {
+                        priority = 1;
+                    } else {
+                        const words = name.split(/\s+/);
+                        for (let word of words) {
+                            if (word.startsWith(searchTerm)) {
+                                priority = 2;
+                                break;
+                            }
+                        }
+                    }
+                    product._searchPriority = priority;
+                });
+                filtered.sort((a, b) => {
+                    if (a._searchPriority !== b._searchPriority)
+                        return a._searchPriority - b._searchPriority;
+                    return arabicAlphabeticalComparator(a, b);
+                });
+                filtered.forEach(p => delete p._searchPriority);
+            } else {
+                if (stockFilter === 'available') filtered = filtered.filter(i => i.quantity > 0);
+                else if (stockFilter === 'outofstock') filtered = filtered.filter(i => i.quantity === 0);
+                filtered.sort(arabicAlphabeticalComparator);
+            }
+            if (stockFilter === 'available') filtered = filtered.filter(i => i.quantity > 0);
+            else if (stockFilter === 'outofstock') filtered = filtered.filter(i => i.quantity === 0);
+            return filtered;
+        }
+
+        function formatPrimary(a) { return a.toFixed(2); }
+
+        function formatSecondary(a) { return Number.isInteger(a) ? a : a.toFixed(2).replace(/\.0+$/, ''); }
+
+        function convertToSecondary(a) { return a * currencySettings.exchangeRate; }
+
+        function convertToPrimary(a) { return a / currencySettings.exchangeRate; }
+
+        function getConversionDisplay(value, isInputSecondary, symbol) {
+            if (isInputSecondary) {
+                return formatSecondary(value) + ' ' + symbol + ' (≈ $' + convertToPrimary(value).toFixed(2) + ')';
+            } else {
+                return formatSecondary(convertToSecondary(value)) + ' ' + symbol;
+            }
+        }
+
+        function updateProductPriceDisplay() {
+            let p = parseFloat(document.getElementById('purchasePrice')?.value) || 0;
+            let s = parseFloat(document.getElementById('salePrice')?.value) || 0;
+            let sym = currencySettings.secondaryCurrencySymbol;
+            let pDisplay = getConversionDisplay(p, tempPurchaseCurrency, sym);
+            let sDisplay = getConversionDisplay(s, tempSaleCurrency, sym);
+            let pEl = document.getElementById('purchasePriceSecondary');
+            let sEl = document.getElementById('salePriceSecondary');
+            if (pEl) pEl.innerText = pDisplay;
+            if (sEl) sEl.innerText = sDisplay;
+        }
+
+        // --- Purchase batches support ---
+        window.currentPurchaseBatches = [];
+        function addPurchaseBatchRow(batch) {
+            batch = batch || { quantity: '', unitCost: '', supplier: '', note: '' };
+            var list = document.getElementById('purchaseBatchesList');
+            if (!list) return;
+            var row = document.createElement('div');
+            row.className = 'purchase-batch-row';
+            row.style.display = 'flex';
+            row.style.gap = '8px';
+            row.style.alignItems = 'center';
+            row.innerHTML =
+                '<input type="number" class="batch-qty" min="0" step="0.01" value="' + (batch.quantity !== undefined ? batch.quantity : '') + '" placeholder="كمية" style="width:90px;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
+                '<input type="number" class="batch-unit" min="0" step="0.01" value="' + (batch.unitCost !== undefined ? batch.unitCost : '') + '" placeholder="سعر الوحدة" style="width:110px;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
+                '<input type="text" class="batch-supplier" placeholder="المورد" value="' + (batch.supplier || '') + '" style="flex:1;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
+                '<input type="text" class="batch-note" placeholder="ملاحظة" value="' + (batch.note || '') + '" style="flex:1;padding:8px;border-radius:10px;border:1px solid var(--border);">' +
+                '<button type="button" class="remove-batch" title="حذف" style="background:transparent;border:none;color:var(--danger);font-weight:700;">✖</button>';
+            list.appendChild(row);
+
+            var qtyEl = row.querySelector('.batch-qty');
+            var unitEl = row.querySelector('.batch-unit');
+            var supEl = row.querySelector('.batch-supplier');
+            var noteEl = row.querySelector('.batch-note');
+            var delBtn = row.querySelector('.remove-batch');
+
+            function onChange() { computeBatchesSummary(); }
+            qtyEl.addEventListener('input', onChange);
+            unitEl.addEventListener('input', onChange);
+            supEl.addEventListener('input', onChange);
+            noteEl.addEventListener('input', onChange);
+            delBtn.addEventListener('click', function() { row.remove(); computeBatchesSummary(); });
+            computeBatchesSummary();
+        }
+
+        function getPurchaseBatchesFromUI() {
+            var rows = document.querySelectorAll('#purchaseBatchesList .purchase-batch-row');
+            var batches = [];
+            rows.forEach(function(r) {
+                var q = parseFloat(r.querySelector('.batch-qty').value) || 0;
+                var u = parseFloat(r.querySelector('.batch-unit').value) || 0;
+                var s = r.querySelector('.batch-supplier').value || '';
+                var n = r.querySelector('.batch-note').value || '';
+                if (q > 0 && u >= 0) batches.push({ quantity: q, unitCost: Number(u), supplier: s, note: n, timestamp: Date.now() });
+            });
+            return batches;
+        }
+
+        function computeBatchesSummary() {
+            var rows = document.querySelectorAll('#purchaseBatchesList .purchase-batch-row');
+            var totalQty = 0, totalCost = 0;
+            rows.forEach(function(r) {
+                var q = parseFloat(r.querySelector('.batch-qty').value) || 0;
+                var uDisplay = parseFloat(r.querySelector('.batch-unit').value) || 0;
+                var uPrimary = tempPurchaseCurrency ? convertToPrimary(uDisplay) : uDisplay;
+                if (q > 0 && uPrimary >= 0) {
+                    totalQty += q;
+                    totalCost += q * uPrimary;
+                }
+            });
+            var avgPrimary = totalQty > 0 ? (totalCost / totalQty) : 0;
+            document.getElementById('batchesTotalQty').innerText = totalQty;
+            var totalCostDisplayed = tempPurchaseCurrency ? convertToSecondary(totalCost) : totalCost;
+            document.getElementById('batchesTotalCost').innerText = formatSecondary(totalCostDisplayed);
+            var purchaseEl = document.getElementById('purchasePrice');
+            if (purchaseEl) {
+                if (totalQty > 0) {
+                    var avgDisplayed = tempPurchaseCurrency ? convertToSecondary(avgPrimary) : avgPrimary;
+                    purchaseEl.value = Number(avgDisplayed.toFixed(2));
+                    purchaseEl.readOnly = true;
+                    purchaseEl.title = 'سعر الشراء محسوب تلقائياً من دفعات الشراء';
+                } else {
+                    purchaseEl.readOnly = false;
+                    purchaseEl.title = '';
+                    if (!purchaseEl.value) purchaseEl.value = '';
+                }
+            }
+            var qtyEl = document.getElementById('quantity');
+            if (qtyEl) {
+                if (totalQty > 0) {
+                    qtyEl.value = totalQty;
+                    qtyEl.readOnly = true;
+                    qtyEl.title = 'تم تعيين الكمية تلقائياً من دفعات الشراء';
+                } else {
+                    qtyEl.readOnly = false;
+                    qtyEl.title = '';
+                    if (!qtyEl.value) qtyEl.value = '';
+                }
+            }
+            window.currentPurchaseBatches = getPurchaseBatchesFromUI();
+        }
+
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.id === 'addPurchaseBatchBtn') addPurchaseBatchRow({ quantity: '', unitCost: '', supplier: '', note: '' });
+        });
+
+
+        function updateSellPriceDisplay() {
+            let v = parseFloat(document.getElementById('sellPrice')?.value) || 0;
+            let qty = parseFloat(document.getElementById('sellQuantity')?.value) || 0;
+            let total = Number(v) * Number(qty);
+            let mainSym = tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$';
+            let otherSym = tempSellCurrency ? '$' : currencySettings.secondaryCurrencySymbol;
+            let converted = tempSellCurrency ? convertToPrimary(v) : convertToSecondary(v);
+            let secondaryInput = document.getElementById('sellPriceSecondary');
+            if (secondaryInput) secondaryInput.value = formatMoney(converted) + ' ' + otherSym;
+            let el = document.getElementById('sellPriceSecondaryInfo');
+            if (el) el.innerText = 'إجمالي البيع: ' + formatMoney(total) + ' ' + mainSym;
+        }
+
+        function setupSellQuantityPresets() {
+            var buttons = document.querySelectorAll('.sell-quantity-preset');
+            buttons.forEach(function(button) {
+                button.addEventListener('click', function() {
+                    var qty = parseFloat(button.dataset.qty);
+                    var input = document.getElementById('sellQuantity');
+                    if (!input || isNaN(qty)) return;
+                    input.value = qty;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+            });
+        }
+
+        function updatePriceLabels() {
+            let sym = currencySettings.secondaryCurrencySymbol;
+            document.getElementById('purchasePriceLabel').innerHTML = 'سعر الشراء (' + (tempPurchaseCurrency ? sym : '$') +
+                ')';
+            document.getElementById('salePriceLabel').innerHTML = 'سعر البيع (' + (tempSaleCurrency ? sym : '$') + ')';
+            document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? sym : '$') + ')';
+        }
+
+        async function saveAllToLocalStorage() {
+            localStorage.setItem('items', JSON.stringify(items));
+            localStorage.setItem('sales', JSON.stringify(sales));
+            localStorage.setItem('activityLog', JSON.stringify(activityLog));
+            localStorage.setItem('currencySettings', JSON.stringify(currencySettings));
+            localStorage.setItem('itemVisibility', JSON.stringify(itemVisibility));
+            localStorage.setItem('categories', JSON.stringify(categories));
+        }
+
+        function loadAllFromLocalStorage() {
+            try {
+                if (localStorage.getItem('items')) items = JSON.parse(localStorage.getItem('items'));
+                if (localStorage.getItem('sales')) sales = JSON.parse(localStorage.getItem('sales'));
+                if (localStorage.getItem('activityLog')) activityLog = JSON.parse(localStorage.getItem('activityLog'));
+                if (localStorage.getItem('currencySettings')) currencySettings = JSON.parse(localStorage.getItem(
+                    'currencySettings'));
+                if (localStorage.getItem('itemVisibility')) itemVisibility = JSON.parse(localStorage.getItem(
+                    'itemVisibility'));
+                if (localStorage.getItem('categories')) categories = JSON.parse(localStorage.getItem('categories'));
+                displayItems();
+            } catch (e) {}
+        }
+
+        async function fetchItems() {
+            const snap = await db.collection('items').get();
+            items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            saveAllToLocalStorage();
+            displayItems();
+        }
+
+        async function fetchCurrencySettings() {
+            let d = await db.collection('currencySettings').doc('settings').get();
+            if (d.exists) currencySettings = { ...currencySettings, ...d.data() };
+            saveAllToLocalStorage();
+            tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+            tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+            tempSellCurrency = (currencySettings.defaultSellCurrency === 'secondary');
+            updatePriceLabels();
+            updateProductPriceDisplay();
+            updateSellPriceDisplay();
+        }
+
+        async function addToActivityLog(type, details) {
+            let entry = { actionType: type, details, dateTime: new Date().toLocaleString('ar-EG'), timestamp: Date.now() };
+            await db.collection('activityLog').add(entry);
+            activityLog.unshift(entry);
+            saveAllToLocalStorage();
+        }
+
+        function displayItems() {
+            let term = document.getElementById('searchInput').value;
+            let filteredSorted = filterAndSortProducts(term, currentFilter);
+            if (!filteredSorted.length) {
+                document.getElementById('itemsList').innerHTML =
+                    '<div class="empty-state">لا توجد منتجات</div>';
+                return;
+            }
+            let html = '';
+            filteredSorted.forEach((item, idx) => {
+                let profit = ((item.salePrice - item.purchasePrice) / item.purchasePrice * 100).toFixed(2);
+                let profitClass = profit >= 0 ? 'profit-positive' : 'profit-negative';
+                let pSec = formatSecondary(convertToSecondary(item.purchasePrice)),
+                    sSec = formatSecondary(convertToSecondary(item.salePrice));
+                let vis = itemVisibility[item.id] || false;
+                let cardClass = item.quantity === 0 ? 'out-of-stock' : (item.quantity <= 2 ? 'low-stock' : '');
+                let isPending = pendingDeleteId === item.id;
+                html +=
+                    `<div class="product-card ${cardClass}" data-id="${item.id}"><div class="product-index-outer">${idx+1}</div>
+                <div class="card-header"><div class="product-title"><span class="product-name">${escapeHtml(item.name)}</span></div>
+                <div class="product-meta-wrapper"><div class="product-meta"><span><i class="fas fa-cubes"></i> ${item.quantity}</span><span class="profit-badge-small ${profitClass} ${vis?'':'blur-price'}">${profit}%</span></div>
+                <button class="eye-icon" data-id="${item.id}" title="${vis?'إخفاء':'إظهار'}"><i class="fas ${vis?'fa-eye':'fa-eye-slash'}"></i></button></div></div>
+                <div class="price-row"><div class="price-col purchase-price"><div class="price-label">شراء</div><div class="primary-price ${vis?'':'blur-price'}">$${formatPrimary(item.purchasePrice)}</div><div class="secondary-price ${vis?'':'blur-price'}">${pSec} ${currencySettings.secondaryCurrencySymbol}</div></div>
+                <div class="price-col sale-price"><div class="price-label">بيع</div><div class="primary-price">$${formatPrimary(item.salePrice)}</div><div class="secondary-price">${sSec} ${currencySettings.secondaryCurrencySymbol}</div></div></div>
+                <div class="action-buttons">${isPending ? `
+                <button class="action-btn confirm-delete" data-id="${item.id}"><i class="fas fa-check"></i> تأكيد الحذف</button>
+                <button class="action-btn cancel-delete" data-id="${item.id}"><i class="fas fa-times"></i> إلغاء</button>` : `
+                <button class="action-btn sell" data-id="${item.id}" ${item.quantity===0?'disabled':''}><i class="fas fa-shopping-cart"></i> بيع</button>
+                <button class="action-btn edit" data-id="${item.id}"><i class="fas fa-edit"></i> تعديل</button>
+                <button class="action-btn delete" data-id="${item.id}"><i class="fas fa-trash-alt"></i> حذف</button>`}</div></div>`;
+            });
+            document.getElementById('itemsList').innerHTML = html;
+            document.querySelectorAll('.sell').forEach(b => b.addEventListener('click', e => openSellModal(e.currentTarget
+                .dataset.id)));
+            document.querySelectorAll('.edit').forEach(b => b.addEventListener('click', e => editItem(e.currentTarget.dataset
+                .id)));
+            document.querySelectorAll('.delete').forEach(b => b.addEventListener('click', e => {
+                pendingDeleteId = e.currentTarget.dataset.id;
+                displayItems();
+            }));
+            document.querySelectorAll('.cancel-delete').forEach(b => b.addEventListener('click', e => {
+                pendingDeleteId = null;
+                displayItems();
+            }));
+            document.querySelectorAll('.confirm-delete').forEach(b => b.addEventListener('click', e => {
+                performDelete(e.currentTarget.dataset.id);
+                pendingDeleteId = null;
+            }));
+            document.querySelectorAll('.eye-icon').forEach(btn => btn.addEventListener('click', e => { let id = btn.dataset
+                    .id;
+                itemVisibility[id] = !itemVisibility[id];
+                displayItems(); }));
+        }
+
+        async function performDelete(itemId) {
+            let item = items.find(i => i.id === itemId);
+            if (!item) return;
+            await db.collection('items').doc(itemId).delete();
+            items = items.filter(i => i.id !== itemId);
+            await addToActivityLog('delete', 'حذف "' + item.name + '"');
+            displayItems();
+        }
+
+        function resetAddForm() {
+            document.getElementById('itemName').value = '';
+            document.getElementById('purchasePrice').value = '';
+            document.getElementById('salePrice').value = '';
+            document.getElementById('quantity').value = '';
+            // clear purchase batches UI
+            try { document.getElementById('purchaseBatchesList').innerHTML = ''; window.currentPurchaseBatches = []; } catch (e) {}
+            tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+            tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+            updatePriceLabels();
+            updateProductPriceDisplay();
+            try { computeBatchesSummary(); } catch (e) {}
+            document.getElementById('itemName').focus();
+            currentItemId = null;
+            isEditing = false;
+            document.getElementById('modalTitle').innerText = 'إضافة قطعة';
+        }
+
+        function addItem() {
+            resetAddForm();
+            document.getElementById('itemModal').style.display = 'flex';
+        }
+
+        function editItem(id) {
+            let item = items.find(i => i.id === id);
+            if (!item) return;
+            currentItemId = id;
+            isEditing = true;
+            document.getElementById('itemName').value = item.name;
+            tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+            tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+            document.getElementById('purchasePrice').value = tempPurchaseCurrency ? formatSecondary(convertToSecondary(item
+                .purchasePrice)) : item.purchasePrice;
+            document.getElementById('salePrice').value = tempSaleCurrency ? formatSecondary(convertToSecondary(item.salePrice)) :
+                item.salePrice;
+            document.getElementById('quantity').value = item.quantity;
+            // populate purchase batches UI if present
+            try {
+                document.getElementById('purchaseBatchesList').innerHTML = '';
+                window.currentPurchaseBatches = [];
+                if (item.purchaseBatches && Array.isArray(item.purchaseBatches) && item.purchaseBatches.length) {
+                    item.purchaseBatches.forEach(b => {
+                        // unitCost stored in primary currency; display in current input currency
+                        const displayUnit = tempPurchaseCurrency ? formatSecondary(convertToSecondary(b.unitCost)) : b.unitCost;
+                        addPurchaseBatchRow({ quantity: b.quantity || 0, unitCost: displayUnit, supplier: b.supplier || '', note: b.note || '' });
+                    });
+                } else {
+                    if ((item.quantity || 0) > 0) addPurchaseBatchRow({ quantity: item.quantity || 0, unitCost: item.purchasePrice || 0, supplier: '', note: '' });
+                }
+            } catch (e) {}
+            document.getElementById('modalTitle').innerText = 'تعديل القطعة';
+            updatePriceLabels();
+            updateProductPriceDisplay();
+            try { computeBatchesSummary(); } catch (e) {}
+            document.getElementById('itemModal').style.display = 'flex';
+        }
+
+        document.getElementById('itemForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const itemForm = document.getElementById('itemForm');
+            if (!itemForm.checkValidity()) {
+                itemForm.reportValidity();
+                return;
+            }
+            try { computeBatchesSummary(); } catch (err) {}
+            let name = document.getElementById('itemName').value.trim();
+            // determine purchase price from purchase batches (weighted average) if any
+            let uiBatches = getPurchaseBatchesFromUI();
+            let purchase = 0;
+            let storedBatches = [];
+            if (uiBatches && uiBatches.length) {
+                let tQ = 0, tC = 0;
+                uiBatches.forEach(b => {
+                    let unit = Number(b.unitCost) || 0;
+                    if (tempPurchaseCurrency) unit = convertToPrimary(unit);
+                    tQ += Number(b.quantity) || 0;
+                    tC += unit * (Number(b.quantity) || 0);
+                    storedBatches.push({ quantity: Number(b.quantity) || 0, unitCost: Number(unit), supplier: b.supplier || '', note: b.note || '', timestamp: b.timestamp || Date.now() });
+                });
+                purchase = tQ > 0 ? (tC / tQ) : 0;
+            } else {
+                purchase = tempPurchaseCurrency ? convertToPrimary(parseFloat(document.getElementById('purchasePrice')
+                    .value) || 0) : parseFloat(document.getElementById('purchasePrice').value) || 0;
+            }
+            purchase = Number((purchase || 0).toFixed(2));
+            let sale = tempSaleCurrency ? convertToPrimary(parseFloat(document.getElementById('salePrice').value) || 0) :
+                parseFloat(document.getElementById('salePrice').value) || 0;
+            let qty = parseFloat(document.getElementById('quantity').value) || 0;
+            if (!name || purchase < 0 || sale < 0 || qty < 0) return alert('بيانات غير صالحة');
+
+            if (isEditing) {
+                let item = items.find(i => i.id === currentItemId);
+                if (!item) return;
+                Object.assign(item, { name, purchasePrice: purchase, salePrice: sale, quantity: qty, purchaseBatches: storedBatches,
+                    updatedAt: Date.now() });
+                await db.collection('items').doc(item.id).set(item);
+                await addToActivityLog('update', 'تعديل "' + name + '"');
+                displayItems();
+                document.getElementById('itemModal').style.display = 'none';
+                document.getElementById('connectionStatus').innerText = 'تم التعديل';
+                document.getElementById('connectionStatus').style.display = 'block';
+                setTimeout(() => document.getElementById('connectionStatus').style.display = 'none', 2000);
+            } else {
+                let newId = 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                let newItem = { id: newId, name, purchasePrice: purchase, salePrice: sale, quantity: qty, purchaseBatches: storedBatches,
+                    createdAt: Date.now(), updatedAt: Date.now() };
+                await db.collection('items').doc(newId).set(newItem);
+                items.push(newItem);
+                await addToActivityLog('add', 'إضافة "' + name + '"');
+                displayItems();
+                document.getElementById('connectionStatus').innerText = 'تمت الإضافة';
+                document.getElementById('connectionStatus').style.display = 'block';
+                setTimeout(() => document.getElementById('connectionStatus').style.display = 'none', 1500);
+                resetAddForm();
+            }
+        });
+
+        document.getElementById('itemForm').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const target = e.target;
+                if (target.tagName === 'INPUT' && target.type !== 'submit' && target.type !== 'button') {
+                    e.preventDefault();
+                    const formElements = Array.from(this.elements).filter(el => (el.tagName === 'INPUT' && el
+                        .type !== 'hidden' && el.type !== 'button' && el.type !== 'submit') || el
+                        .tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+                    const currentIndex = formElements.indexOf(target);
+                    if (currentIndex !== -1 && currentIndex < formElements.length - 1) {
+                        formElements[currentIndex + 1].focus();
+                    } else {
+                        this.dispatchEvent(new Event('submit', { cancelable: true }));
+                    }
+                }
+            }
+        });
+
+        function openSellModal(itemId) {
+            let item = items.find(i => i.id === itemId);
+            if (!item) return;
+            document.getElementById('sellProductName').innerText = item.name;
+            document.getElementById('sellQuantity').value = 1;
+            document.getElementById('sellQuantity').max = item.quantity;
+            tempSellCurrency = (currencySettings.defaultSellCurrency === 'secondary');
+            document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings
+                .secondaryCurrencySymbol : '$') + ')';
+            document.getElementById('sellPriceRow').classList.remove('swapped');
+            document.getElementById('sellPrice').value = tempSellCurrency ? formatSecondary(convertToSecondary(item.salePrice)) :
+                item.salePrice;
+            updateSellPriceDisplay();
+            document.getElementById('sellForm').dataset.itemId = itemId;
+            document.getElementById('sellModal').style.display = 'flex';
+        }
+
+        document.getElementById('sellForm').onsubmit = async (e) => {
+            e.preventDefault();
+            let itemId = document.getElementById('sellForm').dataset.itemId;
+            let item = items.find(i => i.id === itemId);
+            if (!item) return;
+            let qty = parseFloat(document.getElementById('sellQuantity').value);
+            if (qty <= 0 || qty > item.quantity) return alert('كمية غير صالحة');
+            let price = tempSellCurrency ? convertToPrimary(parseFloat(document.getElementById('sellPrice').value) || 0) :
+                parseFloat(document.getElementById('sellPrice').value) || 0;
+            let profit = (price - item.purchasePrice) * qty;
+            let saleObj = {
+                itemId: item.id,
+                itemName: item.name,
+                quantity: qty,
+                unitPrice: price,
+                totalAmount: price * qty,
+                profit,
+                purchasePriceAtTime: item.purchasePrice,
+                timestamp: Date.now(),
+                saleCurrency: tempSellCurrency ? 'secondary' : 'primary'
+            };
+            try {
+                item.quantity -= qty;
+                await db.collection('items').doc(item.id).update({ quantity: item.quantity, updatedAt: Date.now() });
+                let ref = await db.collection('sales').add(saleObj);
+                saleObj.saleId = ref.id;
+                await db.collection('stats').doc('totals').set({
+                    allTimeProfit: firebase.firestore.FieldValue.increment(profit),
+                    updatedAt: Date.now()
+                }, { merge: true });
+                items = items.map(i => i.id === item.id ? item : i);
+                sales.unshift(saleObj);
+                await addToActivityLog('sell', 'بيع ' + qty + ' من "' + item.name + '" بسعر $' + formatPrimary(
+                    price));
+                displayItems();
+                saveAllToLocalStorage();
+                document.getElementById('sellModal').style.display = 'none';
+            } catch (err) { alert('فشل البيع'); }
+        };
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) { if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m ===
+                    '>') return '&gt;'; return m; });
+        }
+
+        const itemsContainer = document.getElementById('itemsContainer');
+        const scrollToTopBtn = document.getElementById('scrollToTopBtn');
+        itemsContainer.addEventListener('scroll', function() {
+            if (itemsContainer.scrollTop > 300) {
+                scrollToTopBtn.classList.add('visible');
+            } else {
+                scrollToTopBtn.classList.remove('visible');
+            }
+        });
+        scrollToTopBtn.addEventListener('click', function() {
+            itemsContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        document.getElementById('addItemBtn').addEventListener('click', addItem);
+        document.getElementById('switchPurchaseCurrency').addEventListener('click', () => {
+            let inputEl = document.getElementById('purchasePrice');
+            let v = parseFloat(inputEl.value) || 0;
+            // convert batch unit inputs as well
+            document.querySelectorAll('.batch-unit').forEach(b => {
+                let val = parseFloat(b.value) || 0;
+                b.value = tempPurchaseCurrency ? formatSecondary(convertToSecondary(val)) : convertToPrimary(val).toFixed(2);
+            });
+            tempPurchaseCurrency = !tempPurchaseCurrency;
+            inputEl.value = tempPurchaseCurrency ? formatSecondary(convertToSecondary(v)) : convertToPrimary(v).toFixed(2);
+            updatePriceLabels();
+            updateProductPriceDisplay();
+            try { computeBatchesSummary(); } catch (e) {}
+        });
+        document.getElementById('switchSaleCurrency').addEventListener('click', () => { let inputEl = document.getElementById(
+                'salePrice');
+            let v = parseFloat(inputEl.value) || 0;
+            tempSaleCurrency = !tempSaleCurrency;
+            inputEl.value = tempSaleCurrency ? formatSecondary(convertToSecondary(v)) : convertToPrimary(v).toFixed(2);
+            updatePriceLabels();
+            updateProductPriceDisplay(); });
+        document.getElementById('switchSellCurrency').addEventListener('click', () => { let inputEl = document.getElementById(
+                'sellPrice');
+            let v = parseFloat(inputEl.value) || 0;
+            tempSellCurrency = !tempSellCurrency;
+            inputEl.value = tempSellCurrency ? formatSecondary(convertToSecondary(v)) : convertToPrimary(v).toFixed(2);
+            document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings
+                .secondaryCurrencySymbol : '$') + ')';
+            updateSellPriceDisplay(); });
+        document.getElementById('purchasePrice').addEventListener('input', updateProductPriceDisplay);
+        document.getElementById('salePrice').addEventListener('input', updateProductPriceDisplay);
+        document.getElementById('sellPrice').addEventListener('input', updateSellPriceDisplay);
+        document.getElementById('sellQuantity').addEventListener('input', updateSellPriceDisplay);
+        setupSellQuantityPresets();
+        document.getElementById('searchInput').addEventListener('input', () => displayItems());
+        document.querySelectorAll('.filter-btn').forEach(btn => { btn.addEventListener('click', () => { document
+                .querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.dataset.filter;
+                displayItems(); }); });
+        document.querySelectorAll('.closeModalBtn').forEach(btn => btn.addEventListener('click', () => document.querySelectorAll(
+            '.modal').forEach(m => m.style.display = 'none')));
+        ['cancelItemBtn', 'cancelSellBtn'].forEach(id => { let btn = document.getElementById(id); if (btn) btn.addEventListener(
+                'click', () => document.querySelectorAll('.modal').forEach(m => m.style.display = 'none')); });
+        window.addEventListener('click', e => { if (e.target.classList.contains('modal')) e.target.style.display = 'none'; });
+
+        document.getElementById('doLoginBtn').addEventListener('click', async () => { let email = document.getElementById(
+                'loginEmail').value.trim();
+            let pass = document.getElementById('loginPassword').value.trim(); if (!email || !pass) { document.getElementById(
+                    'loginErrorMsg').innerText = 'مطلوب';
+                document.getElementById('loginErrorMsg').style.display = 'block'; return; }
+            document.getElementById('loginErrorMsg').style.display = 'none'; try { await auth
+                    .signInWithEmailAndPassword(email, pass); } catch (err) { document.getElementById('loginErrorMsg')
+                    .innerText = 'فشل الدخول';
+                document.getElementById('loginErrorMsg').style.display = 'block'; } });
+
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                document.getElementById('loginContainer').style.display = 'none';
+                document.getElementById('appMain').style.display = 'flex';
+                document.getElementById('connectionStatus').innerText = 'جار التحميل...';
+                document.getElementById('connectionStatus').style.display = 'block';
+                loadAllFromLocalStorage();
+                await fetchCurrencySettings();
+                await fetchItems();
+                document.getElementById('connectionStatus').innerText = 'تم';
+                setTimeout(() => document.getElementById('connectionStatus').style.display = 'none', 2000);
+            } else {
+                document.getElementById('loginContainer').style.display = 'flex';
+                document.getElementById('appMain').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

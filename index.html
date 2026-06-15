@@ -135,7 +135,7 @@
                                 </div>
                             </div>
                             <div class="form-group"><label id="salePriceLabel">سعر البيع ($)</label><div class="input-wrapper special"><i class="fas fa-dollar-sign"></i><input type="number" id="salePrice" step="0.01" min="0" required><button type="button" class="currency-switch" id="switchSaleCurrency">تبديل</button></div><div id="salePriceSecondary" class="currency-info"></div></div>
-                            <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="quantity" min="0" required></div></div>
+                            <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="quantity" min="0" step="0.01" required></div></div>
                             <div class="form-group"><label>الفئة</label><div class="input-wrapper"><i class="fas fa-list"></i><select id="productCategoryId"><option value="">-- بدون فئة --</option></select></div></div>
                             <div class="form-group full-width"><label>وصف المنتج</label><textarea id="productDescription" rows="2" style="width:100%;padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;background:#f8fafc;color:var(--text);"></textarea></div>
                             <div class="form-group full-width"><label>رابط يوتيوب</label><div class="input-wrapper"><i class="fab fa-youtube"></i><input type="url" id="productYoutubeUrl" placeholder="https://youtube.com/..."></div></div>
@@ -307,8 +307,20 @@
             <h3>بيع</h3>
             <form id="sellForm">
                 <div class="form-group"><label>المنتج: <span id="sellProductName"></span></label></div>
-                <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="sellQuantity" min="1" required></div></div>
-                <div class="form-group"><label id="sellPriceLabel">السعر ($)</label><div class="input-wrapper special"><i class="fas fa-dollar-sign"></i><input type="number" id="sellPrice" step="0.01" required><button type="button" class="currency-switch" id="switchSellCurrency">تبديل</button></div><div id="sellPriceSecondaryInfo" class="currency-info"></div></div>
+                <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="sellQuantity" min="0.01" step="0.01" required></div><div class="quantity-presets" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"><button type="button" class="sell-quantity-preset" data-qty="0.25">0.25</button><button type="button" class="sell-quantity-preset" data-qty="0.5">0.5</button><button type="button" class="sell-quantity-preset" data-qty="1">1</button><button type="button" class="sell-quantity-preset" data-qty="1.5">1.5</button><button type="button" class="sell-quantity-preset" data-qty="2">2</button><button type="button" class="sell-quantity-preset" data-qty="3">3</button><button type="button" class="sell-quantity-preset" data-qty="4">4</button><button type="button" class="sell-quantity-preset" data-qty="5">5</button></div></div>
+                <div class="form-group">
+                    <label id="sellPriceLabel">السعر للقطعة ($)</label>
+                    <div class="sell-price-row sell-price-row--compact" id="sellPriceRow">
+                        <div class="sell-price-field sell-price-main">
+                            <input type="number" id="sellPrice" step="0.01" required>
+                        </div>
+                        <button type="button" class="currency-switch sell-price-switch" id="switchSellCurrency">⇄</button>
+                        <div class="sell-price-field sell-price-secondary">
+                            <input type="text" id="sellPriceSecondary" readonly>
+                        </div>
+                    </div>
+                    <div id="sellPriceSecondaryInfo" class="currency-info"></div>
+                </div>
                 <div class="form-actions"><button type="button" class="cancel-btn" onclick="closeModalById('sellModal')">إلغاء</button><button type="submit" class="save-btn">تأكيد</button></div>
             </form>
         </div>
@@ -321,7 +333,7 @@
             <form id="editSaleForm">
                 <input type="hidden" id="editSaleId"><input type="hidden" id="editOriginalItemId"><input type="hidden" id="editOriginalQuantity"><input type="hidden" id="editSaleCurrency">
                 <div class="form-group"><label>المنتج: <span id="editProductName"></span></label></div>
-                <div class="form-group"><label>الكمية</label><div class="input-wrapper"><input type="number" id="editQuantity" min="1" required></div></div>
+                <div class="form-group"><label>الكمية</label><div class="input-wrapper"><input type="number" id="editQuantity" min="0.01" step="0.01" required></div></div>
                 <div class="form-group"><label id="editPriceLabel">السعر</label><div class="input-wrapper special"><input type="number" id="editPrice" step="0.01" required><button type="button" class="currency-switch" id="switchEditCurrency">تبديل</button></div><div id="editPriceSecondaryInfo" class="currency-info"></div></div>
                 <div class="form-actions"><button type="button" class="cancel-btn" onclick="closeModalById('editSaleModal')">إلغاء</button><button type="submit" class="save-btn">حفظ</button></div>
             </form>
@@ -414,6 +426,44 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="pdfExportModal">
+        <div class="modal-dialog">
+            <button class="modal-close" type="button" id="closePdfExportModal">&times;</button>
+            <h3><i class="fas fa-file-pdf"></i> إعدادات تصدير PDF</h3>
+            <div class="form-group">
+                <label>نوع التقرير</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="pdfExportType" value="sales" checked> تقرير المبيعات</label>
+                    <label><input type="radio" name="pdfExportType" value="products"> تقرير المنتجات</label>
+                </div>
+            </div>
+            <div id="productExportOptions">
+                <div class="form-group">
+                    <label>نطاق المنتجات</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="productExportScope" value="all" checked> كل المنتجات</label>
+                        <label><input type="radio" name="productExportScope" value="available"> المنتجات المتوفرة فقط</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>الحقول المراد تصديرها</label>
+                    <div class="checkbox-grid">
+                        <label><input type="checkbox" data-export-field="purchasePrice" checked> سعر الشراء</label>
+                        <label><input type="checkbox" data-export-field="salePrice" checked> سعر البيع</label>
+                        <label><input type="checkbox" data-export-field="quantity" checked> الكمية</label>
+                        <label><input type="checkbox" data-export-field="profitMargin" checked> نسبة الربح</label>
+                        <label><input type="checkbox" data-export-field="secondaryPrice" checked> السعر بالعملة الثانوية</label>
+                        <label><input type="checkbox" data-export-field="categoryName"> الفئة</label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-orange" id="confirmPdfExportBtn"><i class="fas fa-download"></i> تصدير PDF</button>
+                <button class="btn-outline-orange" id="cancelPdfExportBtn" type="button">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -421,6 +471,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.3/html2pdf.bundle.min.js"></script>
     
     <!-- Foundation modules - must be loaded first -->
     <script src="js/firebase-config.js"></script>
