@@ -766,6 +766,31 @@ tr:hover td {
 .modal-close:hover {
     color: var(--danger);
 }
+.radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+.radio-group label,
+.checkbox-grid label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+    color: var(--text);
+}
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+.modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 18px;
+}
 .toast {
     position: fixed;
     bottom: 20px;
@@ -1094,6 +1119,92 @@ tr:hover td {
     font-size: 0.9rem;
     color: #2d3a4f;
     cursor: pointer;
+}
+.sell-price-row {
+    display: flex;
+    align-items: center;
+    justify-content: stretch;
+    gap: 10px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    width: 100%;
+}
+.sell-price-field {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+}
+.sell-price-switch {
+    position: relative;
+    margin: 0;
+    transform: none;
+    min-width: 44px;
+    width: 44px;
+    height: 48px;
+    border-radius: 50%;
+    padding: 0;
+    background: #eef2f6;
+    border: 1px solid var(--border);
+    font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.sell-price-row.swapped {
+    flex-direction: row;
+}
+.sell-price-field input {
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: #f8fafc;
+    color: var(--text);
+    font-size: 0.95rem;
+    outline: none;
+}
+.sell-price-field.sell-price-secondary input {
+    background: #f1f5f9;
+    color: #64748b;
+    cursor: not-allowed;
+}
+.sell-price-switch:hover {
+    background: #e2e8f0;
+}
+.quantity-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+}
+.quantity-presets .sell-quantity-preset {
+    min-width: 48px;
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-weight: 700;
+    font-size: 0.95rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition), transform 0.25s ease;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+.quantity-presets .sell-quantity-preset:hover {
+    border-color: rgba(43, 108, 176, 0.22);
+    background: var(--primary-light);
+    color: var(--primary);
+    transform: translateY(-1px);
+}
+.quantity-presets .sell-quantity-preset:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(43, 108, 176, 0.14);
 }
 .currency-info {
     font-size: 0.75rem;
