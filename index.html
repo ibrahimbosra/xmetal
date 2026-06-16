@@ -41,8 +41,7 @@
             <button data-section="insights"><i class="fas fa-lightbulb"></i> تحليلات ذكية</button>
             <button data-section="expenses"><i class="fas fa-money-bill-wave"></i> المصاريف التشغيلية</button>
             <button data-section="categories"><i class="fas fa-tags"></i> إدارة الفئات</button>
-            <button data-section="storeInfo"><i class="fas fa-store-alt"></i> معلومات المتجر</button>
-            <button data-section="currencySettings"><i class="fas fa-coins"></i> إعدادات العملة</button>
+            <button data-section="settings"><i class="fas fa-cogs"></i> الإعدادات</button>
             <button data-section="sliderManager"><i class="fas fa-sliders-h"></i> سلايدر الإعلانات</button>
         </nav>
         <div class="sidebar-footer">
@@ -115,14 +114,14 @@
                         <div class="form-grid">
                             <div class="form-group full-width"><label>الاسم *</label><div class="input-wrapper"><i class="fas fa-tag"></i><input type="text" id="itemName" required></div></div>
                             <div class="form-group" id="purchaseBatchesGroup">
-                                <label id="purchasePriceLabel">سعر الشراء المتوسط ($)</label>
+                                <label id="purchasePriceLabel">سعر الشراء ($)</label>
                                 <div class="input-wrapper special"><i class="fas fa-dollar-sign"></i>
                                     <input type="number" id="purchasePrice" step="0.01" min="0" required>
                                     <button type="button" class="currency-switch" id="switchPurchaseCurrency">تبديل</button>
                                 </div>
                                 <div id="purchasePriceSecondary" class="currency-info"></div>
 
-                                <div id="purchaseBatchesContainer" style="margin-top:10px;background:var(--surface);padding:10px;border-radius:12px;border:1px solid var(--border);">
+                                <div id="purchaseBatchesContainer" style="display:none;margin-top:10px;background:var(--surface);padding:10px;border-radius:12px;border:1px solid var(--border);">
                                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
                                         <strong>دفعات الشراء</strong>
                                         <div style="display:flex;gap:8px;align-items:center;">
@@ -263,34 +262,44 @@
                 </div>
             </div>
 
-            <div class="section-panel" id="section-storeInfo">
+            <div class="section-panel" id="section-settings">
                 <div style="background:var(--surface);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border:1px solid var(--border);">
-                    <h2 style="margin-bottom:16px;font-weight:800;">معلومات المتجر</h2>
-                    <form id="storeInfoForm">
-                        <div class="form-group"><label>اسم المتجر</label><div class="input-wrapper"><i class="fas fa-store"></i><input type="text" id="storeName"></div></div>
-                        <div class="form-group"><label>العنوان</label><div class="input-wrapper"><i class="fas fa-map-marker-alt"></i><input type="text" id="storeAddress"></div></div>
-                        <div class="form-group"><label>رقم التواصل</label><div class="input-wrapper"><i class="fas fa-phone"></i><input type="text" id="storePhone"></div></div>
-                        <div class="form-group"><label>رابط Google Maps</label><div class="input-wrapper"><i class="fab fa-google"></i><input type="url" id="storeMapLink"></div></div>
-                        <div class="form-group"><label>رابط صورة المحل</label><div class="input-wrapper"><i class="fas fa-image"></i><input type="url" id="storeImageUrl"></div></div>
-                        <div class="form-group"><label>رابط فيديو المحل</label><div class="input-wrapper"><i class="fab fa-youtube"></i><input type="url" id="storeVideoUrl"></div></div>
-                        <div class="form-group"><label>روابط التواصل الاجتماعي</label><div id="socialLinksContainer"></div><button type="button" id="addSocialBtn" class="action-btn">+ إضافة رابط</button></div>
-                        <div class="toggle-row"><span>إخفاء المنتجات غير المتوفرة</span><label><input type="checkbox" id="storeHideOutOfStock"></label></div>
-                        <div class="form-actions"><button type="button" id="cancelStoreInfoBtn" class="cancel-btn">إلغاء</button><button type="submit" class="save-btn">حفظ</button></div>
-                    </form>
-                </div>
-            </div>
-
-            <div class="section-panel" id="section-currencySettings">
-                <div style="background:var(--surface);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border:1px solid var(--border);">
-                    <h2 style="margin-bottom:16px;font-weight:800;">إعدادات العملة</h2>
-                    <form id="currencySettingsForm">
-                        <div class="form-group"><label>اسم العملة الثانوية</label><div class="input-wrapper"><i class="fas fa-coins"></i><input type="text" id="secondaryCurrencyName" value="ريال سعودي"></div></div>
-                        <div class="form-group"><label>الرمز</label><div class="input-wrapper"><i class="fas fa-hashtag"></i><input type="text" id="secondaryCurrencySymbol" value="﷼"></div></div>
-                        <div class="form-group"><label>سعر الصرف (1$ =)</label><div class="input-wrapper"><i class="fas fa-exchange-alt"></i><input type="number" id="exchangeRate" step="0.01" value="3.75"></div></div>
-                        <div class="form-group"><label>عملة الشراء الافتراضية</label><div class="radio-group" style="display:flex;gap:20px;"><label><input type="radio" name="defaultInputCurrency" value="primary" checked> دولار</label><label><input type="radio" name="defaultInputCurrency" value="secondary"> ثانوية</label></div></div>
-                        <div class="form-group"><label>عملة البيع الافتراضية</label><div class="radio-group" style="display:flex;gap:20px;"><label><input type="radio" name="defaultSellCurrency" value="primary" checked> دولار</label><label><input type="radio" name="defaultSellCurrency" value="secondary"> ثانوية</label></div></div>
-                        <div class="form-actions"><button type="button" id="cancelCurrencySettingsBtn" class="cancel-btn">إلغاء</button><button type="submit" class="save-btn">حفظ</button></div>
-                    </form>
+                    <h2 style="margin-bottom:16px;font-weight:800;">الإعدادات</h2>
+                    <div class="form-group" style="margin-bottom:18px;">
+                        <label>دفعات الشراء</label>
+                        <div class="toggle-row" style="justify-content:space-between;gap:10px;padding:12px 0;">
+                            <span>تفعيل دفعات الشراء لحساب متوسط التكلفة</span>
+                            <label><input type="checkbox" id="enablePurchaseBatches"></label>
+                        </div>
+                        <p style="margin-top:8px;color:var(--text3);font-size:0.9rem;">يُستخدم هذا الخيار فقط لعرض وحساب السعر المتوسط من الدفعات. النظام يعتمد افتراضياً على السعر والكمية اليدوية.</p>
+                    </div>
+                    <div style="display:grid;gap:20px;">
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;">
+                            <h3 style="margin-bottom:14px;font-weight:800;">معلومات المتجر</h3>
+                            <form id="storeInfoForm">
+                                <div class="form-group"><label>اسم المتجر</label><div class="input-wrapper"><i class="fas fa-store"></i><input type="text" id="storeName"></div></div>
+                                <div class="form-group"><label>العنوان</label><div class="input-wrapper"><i class="fas fa-map-marker-alt"></i><input type="text" id="storeAddress"></div></div>
+                                <div class="form-group"><label>رقم التواصل</label><div class="input-wrapper"><i class="fas fa-phone"></i><input type="text" id="storePhone"></div></div>
+                                <div class="form-group"><label>رابط Google Maps</label><div class="input-wrapper"><i class="fab fa-google"></i><input type="url" id="storeMapLink"></div></div>
+                                <div class="form-group"><label>رابط صورة المحل</label><div class="input-wrapper"><i class="fas fa-image"></i><input type="url" id="storeImageUrl"></div></div>
+                                <div class="form-group"><label>رابط فيديو المحل</label><div class="input-wrapper"><i class="fab fa-youtube"></i><input type="url" id="storeVideoUrl"></div></div>
+                                <div class="form-group"><label>روابط التواصل الاجتماعي</label><div id="socialLinksContainer"></div><button type="button" id="addSocialBtn" class="action-btn">+ إضافة رابط</button></div>
+                                <div class="toggle-row"><span>إخفاء المنتجات غير المتوفرة</span><label><input type="checkbox" id="storeHideOutOfStock"></label></div>
+                                <div class="form-actions"><button type="button" id="cancelStoreInfoBtn" class="cancel-btn">إلغاء</button><button type="submit" class="save-btn">حفظ</button></div>
+                            </form>
+                        </div>
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;">
+                            <h3 style="margin-bottom:14px;font-weight:800;">إعدادات العملة</h3>
+                            <form id="currencySettingsForm">
+                                <div class="form-group"><label>اسم العملة الثانوية</label><div class="input-wrapper"><i class="fas fa-coins"></i><input type="text" id="secondaryCurrencyName" value="ريال سعودي"></div></div>
+                                <div class="form-group"><label>الرمز</label><div class="input-wrapper"><i class="fas fa-hashtag"></i><input type="text" id="secondaryCurrencySymbol" value="﷼"></div></div>
+                                <div class="form-group"><label>سعر الصرف (1$ =)</label><div class="input-wrapper"><i class="fas fa-exchange-alt"></i><input type="number" id="exchangeRate" step="0.01" value="3.75"></div></div>
+                                <div class="form-group"><label>عملة الشراء الافتراضية</label><div class="radio-group" style="display:flex;gap:20px;"><label><input type="radio" name="defaultInputCurrency" value="primary" checked> دولار</label><label><input type="radio" name="defaultInputCurrency" value="secondary"> ثانوية</label></div></div>
+                                <div class="form-group"><label>عملة البيع الافتراضية</label><div class="radio-group" style="display:flex;gap:20px;"><label><input type="radio" name="defaultSellCurrency" value="primary" checked> دولار</label><label><input type="radio" name="defaultSellCurrency" value="secondary"> ثانوية</label></div></div>
+                                <div class="form-actions"><button type="button" id="cancelCurrencySettingsBtn" class="cancel-btn">إلغاء</button><button type="submit" class="save-btn">حفظ</button></div>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
 
