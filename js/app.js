@@ -36,34 +36,22 @@ function syncLegacyToState() {
     appState.data.sliderItems = allSliderItems;
 }
 
-// Helper to update legacy variables and state
-function updateAllSales(sales) {
-    allSales = sales;
-    appState.setState('data.sales', sales);
-}
-
+// Helpers to update legacy lists and reflect into appState + UI
 function updateAllItems(items) {
-    allItems = items;
-    appState.setState('data.items', items);
+    allItems = items || [];
+    try { if (window.appState && appState.setState) appState.setState('data.items', allItems); } catch (e) {}
+    try { if (document.getElementById('itemsList')) renderInventory(); } catch (e) {}
 }
 
-function calculateSaleTotal(unitPrice, quantity) {
-    return Number(unitPrice || 0) * Number(quantity || 0);
+function updateAllSales(sales) {
+    allSales = sales || [];
+    try { if (window.appState && appState.setState) appState.setState('data.sales', allSales); } catch (e) {}
+    try { renderSalesLog(); } catch (e) {}
 }
 
-function calculateSaleProfit(unitPrice, purchasePriceAtTime, quantity) {
-    return (Number(unitPrice || 0) - Number(purchasePriceAtTime || 0)) * Number(quantity || 0);
-}
-
-function getWeightedAllocationCost(allocations) {
-    if (!allocations || !Array.isArray(allocations) || allocations.length === 0) return 0;
-    var totalQty = 0;
-    var totalCost = allocations.reduce(function(acc, alloc) {
-        var q = Number(alloc.quantity) || 0;
-        totalQty += q;
-        return acc + q * (Number(alloc.unitCost) || 0);
-    }, 0);
-    return totalQty > 0 ? totalCost / totalQty : 0;
+function updateAllCategories(categories) {
+    allCategories = categories || [];
+    try { if (window.appState && appState.setState) appState.setState('data.categories', allCategories); } catch (e) {}
 }
 
 // Compute average unit purchase price for an item (total capital / total qty)
@@ -114,6 +102,15 @@ function removeSaleLocally(saleId) {
 function applyInventoryDelta(item, delta) {
     item.quantity = (Number(item.quantity) || 0) + Number(delta);
     return item;
+}
+
+// Basic sale calculators
+function calculateSaleTotal(unitPrice, quantity) {
+    return Number(unitPrice || 0) * Number(quantity || 0);
+}
+
+function calculateSaleProfit(unitPrice, purchasePriceAtTime, quantity) {
+    return (Number(unitPrice || 0) - Number(purchasePriceAtTime || 0)) * Number(quantity || 0);
 }
 
 // Update item quantity using a Firestore transaction to avoid race conditions
@@ -240,7 +237,7 @@ function buildSaleObject(item, qty, price, currency, purchasePriceAtTime) {
 
 let allSalesFullLoaded = false;
 let currencySettings = { secondaryCurrencyName: 'ريال سعودي', secondaryCurrencySymbol: '﷼', exchangeRate: 3.75,
-    defaultInputCurrency: 'primary', defaultSellCurrency: 'primary' };
+    defaultInputCurrency: 'primary', defaultSellCurrency: 'primary', enablePurchaseBatches: false };
 let storeInfoData = {};
 let currentSection = 'dashboard';
 let salesPage = 0,
@@ -320,6 +317,18 @@ function fmtQty(n) {
     return String(Number(num.toFixed(2))).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1');
 }
 function fmtInt(n) { return parseInt(n || 0, 10); }
+// Robust numeric parser for user input. Returns null for empty/invalid input.
+function parseInputNumber(value) {
+    if (value === null || value === undefined) return null;
+    var s = String(value).trim();
+    if (s === '') return null;
+    // Accept both comma and dot decimals, strip currency symbols/spaces
+    s = s.replace(/,/g, '.');
+    s = s.replace(/[^0-9.\-]/g, '');
+    if (s === '' || s === '.' || s === '-' ) return null;
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+}
 function formatDateString(ts, includeTime) {
     var d = new Date(ts);
     if (!ts || isNaN(d.getTime())) return '';
@@ -559,6 +568,7 @@ function buildCurrencyChangeDetails(oldSettings, newSettings) {
         { key: 'secondaryCurrencyName', label: 'اسم العملة' },
         { key: 'secondaryCurrencySymbol', label: 'رمز العملة' },
         { key: 'exchangeRate', label: 'سعر الصرف', formatter: function(v) { return v === null || v === undefined ? '--' : fmt(v); } },
+        { key: 'enablePurchaseBatches', label: 'تفعيل دفعات الشراء', formatter: function(v) { return v ? 'مفعل' : 'معطل'; } },
         { key: 'defaultInputCurrency', label: 'العملة الافتراضية للإدخال' },
         { key: 'defaultSellCurrency', label: 'العملة الافتراضية للبيع' }
     ];
@@ -1554,9 +1564,10 @@ function getConversionDisplay(value, isInputSecondary, symbol) {
     return fmtMoney(convertToSecondary(value)) + ' ' + symbol;
 }
 function updateProductPriceDisplay() {
-    var p = parseFloat(document.getElementById('purchasePrice') ? document.getElementById('purchasePrice').value :
-        0) || 0;
-    var s = parseFloat(document.getElementById('salePrice') ? document.getElementById('salePrice').value : 0) || 0;
+    var p = parseInputNumber(document.getElementById('purchasePrice') ? document.getElementById('purchasePrice').value : null);
+    var s = parseInputNumber(document.getElementById('salePrice') ? document.getElementById('salePrice').value : null);
+    p = p === null ? 0 : p;
+    s = s === null ? 0 : s;
     var sym = currencySettings.secondaryCurrencySymbol;
     var pEl = document.getElementById('purchasePriceSecondary');
     var sEl = document.getElementById('salePriceSecondary');
@@ -1641,34 +1652,25 @@ document.addEventListener('click', function(event) {
     closeMobileSidebar();
 });
 
-document.getElementById('sidebarLogoutBtn').addEventListener('click', function() {
-    closeMobileSidebar();
-    auth.signOut();
-});
-document.getElementById('exportPdfBtn').addEventListener('click', function() {
-    closeMobileSidebar();
-    showPdfExportModal();
-});
-document.getElementById('exportExcelBtn').addEventListener('click', function() { closeMobileSidebar();
-    exportToCSV(); });
-document.getElementById('printReportBtn').addEventListener('click', function() { closeMobileSidebar();
-    window.print(); });
+var _sidebarLogoutBtn = document.getElementById('sidebarLogoutBtn'); if (_sidebarLogoutBtn) _sidebarLogoutBtn.addEventListener('click', function() { closeMobileSidebar(); auth.signOut(); });
+var _exportPdfBtn = document.getElementById('exportPdfBtn'); if (_exportPdfBtn) _exportPdfBtn.addEventListener('click', function() { closeMobileSidebar(); showPdfExportModal(); });
+var _exportExcelBtn = document.getElementById('exportExcelBtn'); if (_exportExcelBtn) _exportExcelBtn.addEventListener('click', function() { closeMobileSidebar(); exportToCSV(); });
+var _printReportBtn = document.getElementById('printReportBtn'); if (_printReportBtn) _printReportBtn.addEventListener('click', function() { closeMobileSidebar(); window.print(); });
 
-document.getElementById('closePdfExportModal').addEventListener('click', closePdfExportModal);
-document.getElementById('cancelPdfExportBtn').addEventListener('click', closePdfExportModal);
-document.getElementById('confirmPdfExportBtn').addEventListener('click', function() {
-    var selectedMode = document.querySelector('input[name="pdfExportType"]:checked').value;
-    if (selectedMode === 'products') {
-        exportProductsPDF();
-    } else {
-        exportSalesReportPDF();
-    }
+var _closePdfExportModal = document.getElementById('closePdfExportModal'); if (_closePdfExportModal) _closePdfExportModal.addEventListener('click', closePdfExportModal);
+var _cancelPdfExportBtn = document.getElementById('cancelPdfExportBtn'); if (_cancelPdfExportBtn) _cancelPdfExportBtn.addEventListener('click', closePdfExportModal);
+var _confirmPdfExportBtn = document.getElementById('confirmPdfExportBtn'); if (_confirmPdfExportBtn) _confirmPdfExportBtn.addEventListener('click', function() {
+    var radio = document.querySelector('input[name="pdfExportType"]:checked');
+    var selectedMode = radio ? radio.value : 'sales';
+    if (selectedMode === 'products') exportProductsPDF(); else exportSalesReportPDF();
 });
-document.querySelectorAll('input[name="pdfExportType"]').forEach(function(radio) {
-    radio.addEventListener('change', function() {
-        document.getElementById('productExportOptions').style.display = this.value === 'products' ? 'block' : 'none';
+var _pdfExportRadios = document.querySelectorAll('input[name="pdfExportType"]'); if (_pdfExportRadios && _pdfExportRadios.length) {
+    _pdfExportRadios.forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            var pe = document.getElementById('productExportOptions'); if (pe) pe.style.display = this.value === 'products' ? 'block' : 'none';
+        });
     });
-});
+}
 
 document.getElementById('darkToggle').addEventListener('click', function() {
     darkMode = !darkMode;
@@ -2017,6 +2019,8 @@ async function fetchCurrencySettings() {
     diRadios.forEach(function(r) { if (r.value === currencySettings.defaultInputCurrency) r.checked = true; });
     var dsRadios = document.querySelectorAll('input[name="defaultSellCurrency"]');
     dsRadios.forEach(function(r) { if (r.value === currencySettings.defaultSellCurrency) r.checked = true; });
+    var enableBatches = document.getElementById('enablePurchaseBatches');
+    if (enableBatches) enableBatches.checked = !!currencySettings.enablePurchaseBatches;
     tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     tempSellCurrency = (currencySettings.defaultSellCurrency === 'secondary');
@@ -2025,6 +2029,7 @@ async function fetchCurrencySettings() {
     updateProductPriceDisplay();
     updateSellPriceDisplay();
     updateEditSalePriceDisplay();
+    updatePurchaseBatchesVisibility();
 }
 
 async function fetchStoreInfo() {
@@ -2032,6 +2037,28 @@ async function fetchStoreInfo() {
         var d = await db.collection('storeInfo').doc('info').get();
         if (d.exists) storeInfoData = d.data();
     } catch (e) {}
+}
+
+function isPurchaseBatchesEnabled() {
+    return !!currencySettings.enablePurchaseBatches;
+}
+
+function updatePurchaseBatchesVisibility() {
+    var container = document.getElementById('purchaseBatchesContainer');
+    if (container) container.style.display = isPurchaseBatchesEnabled() ? 'block' : 'none';
+}
+
+function renderCurrencySettingsForm() {
+    document.getElementById('secondaryCurrencyName').value = currencySettings.secondaryCurrencyName;
+    document.getElementById('secondaryCurrencySymbol').value = currencySettings.secondaryCurrencySymbol;
+    document.getElementById('exchangeRate').value = currencySettings.exchangeRate;
+    var diRadios = document.querySelectorAll('input[name="defaultInputCurrency"]');
+    diRadios.forEach(function(r) { r.checked = (r.value === currencySettings.defaultInputCurrency); });
+    var dsRadios = document.querySelectorAll('input[name="defaultSellCurrency"]');
+    dsRadios.forEach(function(r) { r.checked = (r.value === currencySettings.defaultSellCurrency); });
+    var enableBatches = document.getElementById('enablePurchaseBatches');
+    if (enableBatches) enableBatches.checked = !!currencySettings.enablePurchaseBatches;
+    updatePurchaseBatchesVisibility();
 }
 
 async function fetchExpensesSmart() {
@@ -2118,6 +2145,10 @@ function renderCurrentSection() {
                 break;
             case 'storeInfo':
                 renderStoreInfo();
+                break;
+            case 'settings':
+                renderStoreInfo();
+                renderCurrencySettingsForm();
                 break;
             case 'currencySettings':
                 break;
@@ -2544,6 +2575,7 @@ function prepareAddItemForm() {
     updateProductPriceDisplay();
     populateCategorySelect();
     document.getElementById('productCategoryId').value = '';
+    updatePurchaseBatchesVisibility();
     try { computeBatchesSummary(); } catch (e) {}
 }
 
@@ -2580,11 +2612,14 @@ function editItem(id) {
     window.currentPurchaseBatches = [];
     var pbList = document.getElementById('purchaseBatchesList');
     if (pbList) pbList.innerHTML = '';
-    if (item.purchaseBatches && Array.isArray(item.purchaseBatches) && item.purchaseBatches.length) {
-        item.purchaseBatches.forEach(function(b) { addPurchaseBatchRow(b); });
-    } else {
-        if ((item.quantity || 0) > 0) addPurchaseBatchRow({ quantity: item.quantity || 0, unitCost: item.purchasePrice || 0, supplier: '', note: '' });
-        else addPurchaseBatchRow({ quantity: 0, unitCost: item.purchasePrice || 0, supplier: '', note: '' });
+    updatePurchaseBatchesVisibility();
+    if (isPurchaseBatchesEnabled()) {
+        if (item.purchaseBatches && Array.isArray(item.purchaseBatches) && item.purchaseBatches.length) {
+            item.purchaseBatches.forEach(function(b) { addPurchaseBatchRow(b); });
+        } else {
+            if ((item.quantity || 0) > 0) addPurchaseBatchRow({ quantity: item.quantity || 0, unitCost: item.purchasePrice || 0, supplier: '', note: '' });
+            else addPurchaseBatchRow({ quantity: 0, unitCost: item.purchasePrice || 0, supplier: '', note: '' });
+        }
     }
     computeBatchesSummary();
     document.getElementById('addItemTitle').innerText = 'تعديل القطعة';
@@ -2653,6 +2688,7 @@ function collectImages() {
 // Purchase batches support (multiple purchase lines with qty, unit cost, supplier, note)
 window.currentPurchaseBatches = [];
 function addPurchaseBatchRow(batch) {
+    if (!isPurchaseBatchesEnabled()) return;
     batch = batch || { quantity: 0, unitCost: 0, supplier: '', note: '' };
     var list = document.getElementById('purchaseBatchesList');
     if (!list) return;
@@ -2685,6 +2721,7 @@ function addPurchaseBatchRow(batch) {
 }
 
 function getPurchaseBatchesFromUI() {
+    if (!isPurchaseBatchesEnabled()) return [];
     var rows = document.querySelectorAll('#purchaseBatchesList .purchase-batch-row');
     var batches = [];
     rows.forEach(function(r) {
@@ -2698,6 +2735,24 @@ function getPurchaseBatchesFromUI() {
 }
 
 function computeBatchesSummary() {
+    if (!isPurchaseBatchesEnabled()) {
+        window.currentPurchaseBatches = [];
+        var purchaseEl = document.getElementById('purchasePrice');
+        if (purchaseEl) {
+            purchaseEl.readOnly = false;
+            purchaseEl.title = '';
+        }
+        var qtyEl = document.getElementById('quantity');
+        if (qtyEl) {
+            qtyEl.readOnly = false;
+            qtyEl.title = '';
+        }
+        var totalQtyEl = document.getElementById('batchesTotalQty');
+        if (totalQtyEl) totalQtyEl.innerText = '0';
+        var totalCostEl = document.getElementById('batchesTotalCost');
+        if (totalCostEl) totalCostEl.innerText = '0';
+        return;
+    }
     var rows = document.querySelectorAll('#purchaseBatchesList .purchase-batch-row');
     var totalQty = 0, totalCost = 0;
     rows.forEach(function(r) {
@@ -2717,13 +2772,14 @@ function computeBatchesSummary() {
     document.getElementById('batchesTotalCost').innerText = fmtMoney(totalCostDisplayed);
     var purchaseEl = document.getElementById('purchasePrice');
     if (purchaseEl) {
-        var avgDisplayed = tempPurchaseCurrency ? convertToSecondary(avgPrimary) : avgPrimary;
-        purchaseEl.value = Number((avgDisplayed || 0).toFixed(2));
-        // lock purchasePrice when batches exist to prevent inconsistency
+        // Only update the purchase input when batches actually define a non-zero average.
         if (totalQty > 0) {
+            var avgDisplayed = tempPurchaseCurrency ? convertToSecondary(avgPrimary) : avgPrimary;
+            purchaseEl.value = Number((avgDisplayed || 0).toFixed(2));
             purchaseEl.readOnly = true;
             purchaseEl.title = 'سعر الشراء محسوب تلقائياً من دفعات الشراء';
         } else {
+            // Do not overwrite manual input when there are no batches.
             purchaseEl.readOnly = false;
             purchaseEl.title = '';
         }
@@ -2731,12 +2787,12 @@ function computeBatchesSummary() {
     // If batches define a total quantity, reflect it on the main quantity input
     var qtyEl = document.getElementById('quantity');
     if (qtyEl) {
-        qtyEl.value = totalQty;
-        // lock quantity when batches define total quantity to avoid inconsistencies
         if (totalQty > 0) {
+            qtyEl.value = totalQty;
             qtyEl.readOnly = true;
             qtyEl.title = 'تم تعيين الكمية تلقائياً من دفعات الشراء';
         } else {
+            // preserve manual quantity when no batches exist
             qtyEl.readOnly = false;
             qtyEl.title = '';
         }
@@ -2833,7 +2889,11 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     var uiBatches = getPurchaseBatchesFromUI();
     var purchase = 0;
     var storedBatches = [];
-    var qty = parseFloat(document.getElementById('quantity').value) || 0;
+    var qtyEl = document.getElementById('quantity');
+    var purchaseEl = document.getElementById('purchasePrice');
+    var qtyRaw = qtyEl ? parseInputNumber(qtyEl.value) : null;
+    var purchaseRaw = purchaseEl ? parseInputNumber(purchaseEl.value) : null;
+    var qty = null;
     if (uiBatches && uiBatches.length) {
         var tQ = 0, tC = 0;
         uiBatches.forEach(function(b) {
@@ -2846,13 +2906,29 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
         });
         purchase = tQ > 0 ? (tC / tQ) : 0;
         qty = tQ; // quantity must match batch totals to avoid inconsistency
-        document.getElementById('quantity').value = qty;
+        if (qtyEl) qtyEl.value = qty;
     } else {
-        purchase = tempPurchaseCurrency ? convertToPrimary(parseFloat(document.getElementById('purchasePrice').value) || 0) : parseFloat(document.getElementById('purchasePrice').value) || 0;
+        // Prefer manual inputs when provided. If absent and editing, preserve existing values.
+        var existingItem = isEditingItem ? allItems.find(function(i) { return i.id === currentItemId; }) : null;
+        if (qtyRaw !== null) {
+            qty = qtyRaw;
+        } else if (existingItem) {
+            qty = existingItem.quantity || 0;
+        } else {
+            qty = 0;
+        }
+
+        if (purchaseRaw !== null) {
+            purchase = tempPurchaseCurrency ? convertToPrimary(purchaseRaw) : purchaseRaw;
+        } else if (existingItem) {
+            purchase = existingItem.purchasePrice || 0;
+        } else {
+            purchase = 0;
+        }
     }
     purchase = Number((purchase || 0).toFixed(2));
-    var sale = tempSaleCurrency ? convertToPrimary(parseFloat(document.getElementById('salePrice').value) || 0) :
-        parseFloat(document.getElementById('salePrice').value) || 0;
+    var rawSale = parseInputNumber(document.getElementById('salePrice').value);
+    var sale = rawSale === null ? 0 : (tempSaleCurrency ? convertToPrimary(rawSale) : rawSale);
     if (!name || purchase < 0 || sale < 0 || qty < 0) return alert('بيانات غير صالحة');
     var catId = document.getElementById('productCategoryId').value;
     var cat = allCategories.find(function(c) { return c.id === catId; });
@@ -2927,7 +3003,25 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
 
 function openSellModal(itemId) {
     var item = allItems.find(function(i) { return i.id === itemId; });
-    if (!item) return;
+    if (!item) {
+        // attempt to fetch item from DB when not cached
+        db.collection('items').doc(itemId).get().then(function(d) {
+            if (!d.exists) return alert('المنتج غير موجود');
+            item = { id: d.id, ...d.data() };
+            // continue with UI population
+            document.getElementById('sellProductName').innerText = item.name;
+            document.getElementById('sellQuantity').value = 1;
+            document.getElementById('sellQuantity').max = item.quantity;
+            tempSellCurrency = (currencySettings.defaultSellCurrency === 'secondary');
+            document.getElementById('sellPriceRow').classList.remove('swapped');
+            document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
+            document.getElementById('sellPrice').value = tempSellCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item.salePrice);
+            updateSellPriceDisplay();
+            document.getElementById('sellForm').dataset.itemId = itemId;
+            document.getElementById('sellModal').classList.add('show');
+        }).catch(function() { return alert('تعذر جلب بيانات المنتج'); });
+        return;
+    }
     document.getElementById('sellProductName').innerText = item.name;
     document.getElementById('sellQuantity').value = 1;
     document.getElementById('sellQuantity').max = item.quantity;
@@ -2947,10 +3041,11 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
     var itemId = document.getElementById('sellForm').dataset.itemId;
     var item = allItems.find(function(i) { return i.id === itemId; });
     if (!item) return;
-    var qty = parseFloat(document.getElementById('sellQuantity').value);
-    if (qty <= 0 || qty > item.quantity) return alert('كمية غير صالحة');
-    var price = tempSellCurrency ? convertToPrimary(parseFloat(document.getElementById('sellPrice').value) || 0) :
-        parseFloat(document.getElementById('sellPrice').value) || 0;
+    var qty = parseInputNumber(document.getElementById('sellQuantity').value);
+    if (qty === null || qty <= 0 || qty > item.quantity) return alert('كمية غير صالحة');
+    var rawPrice = parseInputNumber(document.getElementById('sellPrice').value);
+    if (rawPrice === null) return alert('السعر غير صالح');
+    var price = tempSellCurrency ? convertToPrimary(rawPrice) : rawPrice;
     var currency = tempSellCurrency ? 'secondary' : 'primary';
     var allocations = null;
     var purchasePriceAtTime = item.purchasePrice;
@@ -3007,7 +3102,8 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
 
 document.getElementById('switchPurchaseCurrency').addEventListener('click', function() {
     var inputEl = document.getElementById('purchasePrice');
-    var v = parseFloat(inputEl.value) || 0;
+    var v = parseInputNumber(inputEl.value);
+    v = v === null ? 0 : v;
     // convert existing batch unit values to the other currency
     var batchUnits = document.querySelectorAll('.batch-unit');
     batchUnits.forEach(function(b) {
@@ -3023,7 +3119,8 @@ document.getElementById('switchPurchaseCurrency').addEventListener('click', func
 });
 document.getElementById('switchSaleCurrency').addEventListener('click', function() {
     var inputEl = document.getElementById('salePrice');
-    var v = parseFloat(inputEl.value) || 0;
+    var v = parseInputNumber(inputEl.value);
+    v = v === null ? 0 : v;
     tempSaleCurrency = !tempSaleCurrency;
     inputEl.value = tempSaleCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
     updatePriceLabels();
@@ -3031,7 +3128,8 @@ document.getElementById('switchSaleCurrency').addEventListener('click', function
 });
 document.getElementById('switchSellCurrency').addEventListener('click', function() {
     var inputEl = document.getElementById('sellPrice');
-    var v = parseFloat(inputEl.value) || 0;
+    var v = parseInputNumber(inputEl.value);
+    v = v === null ? 0 : v;
     tempSellCurrency = !tempSellCurrency;
     inputEl.value = tempSellCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
     document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings
@@ -3040,7 +3138,8 @@ document.getElementById('switchSellCurrency').addEventListener('click', function
 });
 document.getElementById('switchEditCurrency').addEventListener('click', function() {
     var inputEl = document.getElementById('editPrice');
-    var v = parseFloat(inputEl.value) || 0;
+    var v = parseInputNumber(inputEl.value);
+    v = v === null ? 0 : v;
     tempEditCurrency = !tempEditCurrency;
     inputEl.value = tempEditCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
     document.getElementById('editPriceLabel').innerHTML = 'السعر (' + (tempEditCurrency ? currencySettings
@@ -3054,11 +3153,10 @@ var sellQtyEl = document.getElementById('sellQuantity');
 if (sellQtyEl) sellQtyEl.addEventListener('input', updateSellPriceDisplay);
 setupSellQuantityPresets();
 document.getElementById('editPrice').addEventListener('input', updateEditSalePriceDisplay);
-document.getElementById('addSpecBtn').addEventListener('click', function() { addSpecificationRow('', ''); });
-document.getElementById('addImageBtn').addEventListener('click', function() { addImageRow('', false); });
-document.getElementById('productDiscountEnabled').addEventListener('change', function() {
-    document.getElementById('discountValueGroup').style.display = document.getElementById(
-        'productDiscountEnabled').checked ? 'block' : 'none';
+var _addSpecBtn = document.getElementById('addSpecBtn'); if (_addSpecBtn) _addSpecBtn.addEventListener('click', function() { addSpecificationRow('', ''); });
+var _addImageBtn = document.getElementById('addImageBtn'); if (_addImageBtn) _addImageBtn.addEventListener('click', function() { addImageRow('', false); });
+var _productDiscountEnabled = document.getElementById('productDiscountEnabled'); if (_productDiscountEnabled) _productDiscountEnabled.addEventListener('change', function() {
+    var dv = document.getElementById('discountValueGroup'); if (dv) dv.style.display = _productDiscountEnabled.checked ? 'block' : 'none';
 });
 function setupSellQuantityPresets() {
     var buttons = document.querySelectorAll('.sell-quantity-preset');
@@ -3334,9 +3432,29 @@ window.viewSaleDetail = viewSaleDetail;
 
 window.editSale = function(saleId) {
     var sale = allSales.find(function(s) { return s.saleId === saleId; });
-    if (!sale) return;
-    var prod = allItems.find(function(i) { return i.id === sale.itemId; });
-    if (!prod) return alert('المنتج غير موجود');
+    // If not cached locally, try to fetch from Firestore
+    var saleDocFetch = null;
+    if (!sale) {
+        saleDocFetch = db.collection('sales').doc(saleId).get().then(function(d) {
+            if (!d.exists) throw new Error('بيع غير موجود');
+            return { saleId: d.id, ...d.data() };
+        }).catch(function(err) { return null; });
+    }
+    Promise.resolve(saleDocFetch || sale).then(async function(res) {
+        var theSale = res || sale;
+        if (!theSale) return alert('سجل البيع غير متوفر حالياً');
+        var prod = allItems.find(function(i) { return i.id === theSale.itemId; });
+        if (!prod) {
+            // try fetching product from DB
+            try {
+                var pd = await db.collection('items').doc(theSale.itemId).get();
+                if (!pd.exists) return alert('المنتج غير موجود');
+                prod = { id: pd.id, ...pd.data() };
+            } catch (err) {
+                return alert('المنتج غير موجود');
+            }
+        }
+        var sale = theSale;
     document.getElementById('editSaleId').value = sale.saleId;
     document.getElementById('editOriginalItemId').value = sale.itemId;
     document.getElementById('editOriginalQuantity').value = sale.quantity;
@@ -3350,17 +3468,20 @@ window.editSale = function(saleId) {
     document.getElementById('editPrice').value = tempEditCurrency ? fmtMoney(convertToSecondary(sale.unitPrice)) : fmtMoney(sale
         .unitPrice);
     updateEditSalePriceDisplay();
-    document.getElementById('editSaleModal').classList.add('show');
+        document.getElementById('editSaleModal').classList.add('show');
+    });
 };
 
 document.getElementById('editSaleForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     var saleId = document.getElementById('editSaleId').value;
     var itemId = document.getElementById('editOriginalItemId').value;
-    var oldQty = parseFloat(document.getElementById('editOriginalQuantity').value) || 0;
-    var newQty = parseFloat(document.getElementById('editQuantity').value) || 0;
-    var price = tempEditCurrency ? convertToPrimary(parseFloat(document.getElementById('editPrice').value) || 0) :
-        parseFloat(document.getElementById('editPrice').value) || 0;
+    var oldQty = parseInputNumber(document.getElementById('editOriginalQuantity').value);
+    oldQty = oldQty === null ? 0 : oldQty;
+    var newQty = parseInputNumber(document.getElementById('editQuantity').value);
+    newQty = newQty === null ? 0 : newQty;
+    var rawPrice = parseInputNumber(document.getElementById('editPrice').value);
+    var price = rawPrice === null ? 0 : (tempEditCurrency ? convertToPrimary(rawPrice) : rawPrice);
     var sale = allSales.find(function(s) { return s.saleId === saleId; });
     var prod = allItems.find(function(i) { return i.id === itemId; });
     if (!sale || !prod) return;
@@ -3447,8 +3568,25 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
 window.cancelSale = async function(saleId) {
     if (!confirm('إلغاء البيع؟')) return;
     var sale = allSales.find(function(s) { return s.saleId === saleId; });
+    if (!sale) {
+        try {
+            var sd = await db.collection('sales').doc(saleId).get();
+            if (!sd.exists) return alert('سجل البيع غير موجود');
+            sale = { saleId: sd.id, ...sd.data() };
+        } catch (err) {
+            return alert('تعذر جلب سجل البيع');
+        }
+    }
     var prod = allItems.find(function(i) { return i.id === sale.itemId; });
-    if (!prod) return;
+    if (!prod) {
+        try {
+            var pd = await db.collection('items').doc(sale.itemId).get();
+            if (!pd.exists) return alert('المنتج غير موجود');
+            prod = { id: pd.id, ...pd.data() };
+        } catch (err) {
+            return alert('تعذر جلب بيانات المنتج');
+        }
+    }
     // restore quantity using batch-aware transaction when possible
     try {
         if (sale.purchaseBatchAllocations && Array.isArray(sale.purchaseBatchAllocations) && sale.purchaseBatchAllocations.length) {
@@ -4041,6 +4179,14 @@ document.getElementById('storeInfoForm').addEventListener('submit', async functi
 });
 document.getElementById('cancelStoreInfoBtn').addEventListener('click', function() { renderStoreInfo(); });
 
+var _enablePurchaseBatchesCheckbox = document.getElementById('enablePurchaseBatches');
+if (_enablePurchaseBatchesCheckbox) {
+    _enablePurchaseBatchesCheckbox.addEventListener('change', function() {
+        currencySettings.enablePurchaseBatches = this.checked;
+        updatePurchaseBatchesVisibility();
+    });
+}
+
 document.getElementById('currencySettingsForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     var previousCurrency = JSON.parse(JSON.stringify(currencySettings));
@@ -4049,6 +4195,8 @@ document.getElementById('currencySettingsForm').addEventListener('submit', async
         exchangeRate: parseFloat(document.getElementById('exchangeRate').value),
         defaultInputCurrency: document.querySelector('input[name="defaultInputCurrency"]:checked').value,
         defaultSellCurrency: document.querySelector('input[name="defaultSellCurrency"]:checked').value };
+    var enablePurchaseBatchesCheckbox = document.getElementById('enablePurchaseBatches');
+    ns.enablePurchaseBatches = enablePurchaseBatchesCheckbox ? enablePurchaseBatchesCheckbox.checked : false;
     if (!ns.secondaryCurrencyName || !ns.secondaryCurrencySymbol || isNaN(ns.exchangeRate) || ns.exchangeRate <=
         0) return alert('بيانات غير صالحة');
     await db.collection('currencySettings').doc('settings').set(ns);
@@ -4058,6 +4206,7 @@ document.getElementById('currencySettingsForm').addEventListener('submit', async
     tempPurchaseCurrency = (ns.defaultInputCurrency === 'secondary');
     tempSaleCurrency = (ns.defaultInputCurrency === 'secondary');
     tempSellCurrency = (ns.defaultSellCurrency === 'secondary');
+    updatePurchaseBatchesVisibility();
     updatePriceLabels();
     showToast('تم حفظ الإعدادات');
 });
@@ -4065,6 +4214,8 @@ document.getElementById('cancelCurrencySettingsBtn').addEventListener('click', f
     document.getElementById('secondaryCurrencyName').value = currencySettings.secondaryCurrencyName;
     document.getElementById('secondaryCurrencySymbol').value = currencySettings.secondaryCurrencySymbol;
     document.getElementById('exchangeRate').value = currencySettings.exchangeRate;
+    var enableBatches = document.getElementById('enablePurchaseBatches');
+    if (enableBatches) enableBatches.checked = !!currencySettings.enablePurchaseBatches;
 });
 
 function renderSliderItems() {
@@ -4498,36 +4649,11 @@ document.getElementById('openSliderIconPicker').addEventListener('click', functi
 document.getElementById('closeSliderIconPicker').addEventListener('click', function() {
     document.getElementById('sliderIconPickerModal').classList.remove('active');
 });
-document.getElementById('clearSliderIcon').addEventListener('click', function() {
-    document.getElementById('sliderEditIcon').value = '';
-    document.getElementById('sliderIconPreview').innerHTML = '<i class="fas fa-icons"></i>';
-    updateSliderLivePreview();
-});
-document.getElementById('sliderIconSearchInput').addEventListener('input', function() {
-    renderSliderIconsGrid(document.getElementById('sliderIconSearchInput').value);
-});
-document.getElementById('sliderIconPickerModal').addEventListener('click', function(e) {
-    if (e.target === document.getElementById('sliderIconPickerModal')) document.getElementById(
-        'sliderIconPickerModal').classList.remove('active');
-});
+var _darkToggle = document.getElementById('darkToggle'); if (_darkToggle) _darkToggle.addEventListener('click', function() { darkMode = !darkMode; applyDarkMode(); destroyAllCharts(); renderCurrentSection(); });
+var _currencyToggleBtn = document.getElementById('currencyToggleBtn'); if (_currencyToggleBtn) _currencyToggleBtn.addEventListener('click', function() { displaySecondaryCurrency = !displaySecondaryCurrency; localStorage.setItem('xmetalDisplaySecondary', displaySecondaryCurrency); var label = document.getElementById('currencyLabel'); if (label) label.textContent = displaySecondaryCurrency ? currencySettings.secondaryCurrencySymbol : '$'; destroyAllCharts(); renderCurrentSection(); });
+var _targetSalesBtn = document.getElementById('targetSalesBtn'); if (_targetSalesBtn) _targetSalesBtn.addEventListener('click', function() { var input = document.getElementById('targetSalesInput'); if (input) input.value = salesTarget; var modal = document.getElementById('targetModal'); if (modal) modal.classList.add('show'); });
+var _saveTargetBtn = document.getElementById('saveTargetBtn'); if (_saveTargetBtn) _saveTargetBtn.addEventListener('click', async function() { salesTarget = parseFloat(document.getElementById('targetSalesInput').value) || 0; localStorage.setItem('xmetalSalesTarget', salesTarget); await logActivity('targetUpdate', 'target', 'daily', 'تحديث هدف المبيعات اليومي: ' + salesTarget, { target: salesTarget }); closeModalById('targetModal'); showToast('تم حفظ الهدف'); });
 
-function renderSliderIconsGrid(filter) {
-    filter = filter || '';
-    var filtered = popularIcons.filter(function(icon) { return icon.toLowerCase().includes(filter.toLowerCase()); });
-    var currentIcon = document.getElementById('sliderEditIcon').value.trim();
-    var grid = document.getElementById('sliderIconsGrid');
-    grid.innerHTML = filtered.map(function(icon) { return '<div class="icon-option ' + (icon === currentIcon ?
-            'selected' : '') + '" data-icon="' + icon + '"><i class="' + icon + '"></i></div>'; }).join('');
-    document.querySelectorAll('#sliderIconsGrid .icon-option').forEach(function(opt) {
-        opt.addEventListener('click', function() {
-            var si = opt.dataset.icon;
-            document.getElementById('sliderEditIcon').value = si;
-            document.getElementById('sliderIconPreview').innerHTML = '<i class="' + si + '"></i>';
-            document.getElementById('sliderIconPickerModal').classList.remove('active');
-            updateSliderLivePreview();
-        });
-    });
-}
 
 function applySalesFiltersClient() {
     var filtered = [...allSales];
@@ -4830,4 +4956,3 @@ window.addEventListener('click', function(e) {
 });
 
 applyDarkMode();
-console.log('🚀 X METAL Unified Dashboard Ready');

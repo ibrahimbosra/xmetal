@@ -174,6 +174,7 @@ class PermissionManager {
             'categories': ['inventory.edit'],
             'storeInfo': ['store.edit'],
             'currencySettings': ['settings.edit'],
+            'settings': ['settings.edit'],
             'sliderManager': ['settings.edit']
         };
         
