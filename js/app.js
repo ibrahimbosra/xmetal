@@ -1654,7 +1654,7 @@ document.addEventListener('click', function(event) {
 
 var _sidebarLogoutBtn = document.getElementById('sidebarLogoutBtn'); if (_sidebarLogoutBtn) _sidebarLogoutBtn.addEventListener('click', function() { closeMobileSidebar(); auth.signOut(); });
 var _exportPdfBtn = document.getElementById('exportPdfBtn'); if (_exportPdfBtn) _exportPdfBtn.addEventListener('click', function() { closeMobileSidebar(); showPdfExportModal(); });
-var _exportExcelBtn = document.getElementById('exportExcelBtn'); if (_exportExcelBtn) _exportExcelBtn.addEventListener('click', function() { closeMobileSidebar(); exportToCSV(); });
+var _exportExcelBtn = document.getElementById('exportExcelBtn'); if (_exportExcelBtn) _exportExcelBtn.addEventListener('click', function() { closeMobileSidebar(); showCsvExportModal(); });
 var _printReportBtn = document.getElementById('printReportBtn'); if (_printReportBtn) _printReportBtn.addEventListener('click', function() { closeMobileSidebar(); window.print(); });
 
 var _closePdfExportModal = document.getElementById('closePdfExportModal'); if (_closePdfExportModal) _closePdfExportModal.addEventListener('click', closePdfExportModal);
@@ -1669,6 +1669,26 @@ var _pdfExportRadios = document.querySelectorAll('input[name="pdfExportType"]');
         radio.addEventListener('change', function() {
             var pe = document.getElementById('productExportOptions'); if (pe) pe.style.display = this.value === 'products' ? 'block' : 'none';
         });
+    });
+}
+var _closeCsvExportModal = document.getElementById('closeCsvExportModal'); if (_closeCsvExportModal) _closeCsvExportModal.addEventListener('click', closeCsvExportModal);
+var _cancelCsvExportBtn = document.getElementById('cancelCsvExportBtn'); if (_cancelCsvExportBtn) _cancelCsvExportBtn.addEventListener('click', closeCsvExportModal);
+var _confirmCsvExportBtn = document.getElementById('confirmCsvExportBtn'); if (_confirmCsvExportBtn) _confirmCsvExportBtn.addEventListener('click', function() {
+    var selectedCols = Array.from(document.querySelectorAll('#csvExportModal input[data-export-col]:checked')).map(function(input) {
+        return input.dataset.exportCol;
+    });
+    if (!selectedCols.length) {
+        showToast('❌ الرجاء اختيار عمود واحد على الأقل', 'error');
+        return;
+    }
+    closeCsvExportModal();
+    exportToXLSX(selectedCols);
+});
+
+var _csvExportCheckboxes = document.querySelectorAll('#csvExportModal input[data-export-col]');
+if (_csvExportCheckboxes && _csvExportCheckboxes.length) {
+    _csvExportCheckboxes.forEach(function(chk) {
+        chk.addEventListener('change', renderCsvPreview);
     });
 }
 
@@ -1946,7 +1966,8 @@ function filterSalesItems(items) {
             if (!catItems.includes(s.itemId)) return false;
         }
         if (sp.minProfitPct !== '' || sp.maxProfitPct !== '') {
-            var pct = s.totalAmount > 0 ? ((Number(s.profit) || 0) / Number(s.totalAmount) * 100) : 0;
+            var cost = (Number(s.purchasePriceAtTime) || 0) * (Number(s.quantity) || 0);
+            var pct = cost > 0 ? ((Number(s.profit) || 0) / cost * 100) : 0;
             if (sp.minProfitPct !== '' && pct < parseFloat(sp.minProfitPct)) return false;
             if (sp.maxProfitPct !== '' && pct > parseFloat(sp.maxProfitPct)) return false;
         }
@@ -3263,7 +3284,7 @@ function buildSalesRowsHtml(items) {
             lastDayKey = dayKey;
         }
         var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
-        var profitPct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount * 100) : 0;
+        var profitPct = cost > 0 ? ((s.profit || 0) / cost * 100) : 0;
         html += '<tr><td>' + (i + 1) + '</td><td>' + fmtDateTime(s.timestamp) + '</td><td>' +
             escHtml(s.itemName || '--') + '</td><td>' + (s.quantity || 0) + '</td><td>' +
             formatMoney(s.unitPrice || 0) + '</td><td>' + formatMoney(s.totalAmount || 0) +
@@ -3405,7 +3426,7 @@ function viewSaleDetail(saleId) {
 
 function renderSaleDetailModal(s) {
     var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
-    var profitPct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount * 100) : 0;
+    var profitPct = cost > 0 ? ((s.profit || 0) / cost * 100) : 0;
     var item = allItems.find(function(i) { return i.id === s.itemId; });
     document.getElementById('saleDetailContent').innerHTML =
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.85rem;">' +
@@ -4688,35 +4709,177 @@ function applySalesFiltersClient() {
     if (sp.minQty !== '') filtered = filtered.filter(function(s) { return (s.quantity || 0) >= parseFloat(sp.minQty); });
     if (sp.maxQty !== '') filtered = filtered.filter(function(s) { return (s.quantity || 0) <= parseFloat(sp.maxQty); });
     if (sp.minProfitPct !== '' || sp.maxProfitPct !== '') {
-        filtered = filtered.filter(function(s) { var pct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount *
+        filtered = filtered.filter(function(s) { var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0); var pct = cost > 0 ? ((s.profit || 0) / cost *
                 100) : 0; if (sp.minProfitPct !== '' && pct < parseFloat(sp.minProfitPct)) return false; if (sp
                 .maxProfitPct !== '' && pct > parseFloat(sp.maxProfitPct)) return false; return true; });
     }
     return filtered;
 }
 
-function exportToCSV() {
-    var filtered = applySalesFiltersClient();
-    var rows = [
-        ['#', 'التاريخ', 'المنتج', 'الكمية', 'سعر الوحدة', 'الإجمالي', 'التكلفة', 'الربح', 'نسبة الربح']
-    ];
-    filtered.forEach(function(s, i) {
-        var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
-        var profitPct = s.totalAmount > 0 ? ((s.profit || 0) / s.totalAmount * 100) : 0;
-        rows.push([i + 1, fmtDateTime(s.timestamp), s.itemName || '', s.quantity || 0, formatMoneyPlain(s
-            .unitPrice || 0), formatMoneyPlain(s.totalAmount || 0), formatMoneyPlain(cost),
-            formatMoneyPlain(s.profit || 0), fmt(profitPct) + '%'
-        ]);
+var csvExportColumns = [
+    {
+        id: 'productName',
+        label: 'اسم المنتج',
+        getter: function(item) { return item.name || ''; }
+    },
+    {
+        id: 'purchasePrice',
+        label: 'سعر الشراء',
+        getter: function(item) { return '$' + fmtMoney(item.purchasePrice || 0); }
+    },
+    {
+        id: 'salePrice',
+        label: 'سعر المبيع',
+        getter: function(item) { return '$' + fmtMoney(item.salePrice || 0); }
+    },
+    {
+        id: 'secondarySalePrice',
+        label: 'سعر المبيع بالعملة الثانوية',
+        getter: function(item) { return fmtMoney(convertToSecondary(item.salePrice || 0)) + ' ' + currencySettings.secondaryCurrencySymbol; }
+    },
+    {
+        id: 'quantity',
+        label: 'الكمية',
+        getter: function(item) { return item.quantity || 0; }
+    }
+];
+
+function getInventoryExportItems() {
+    var term = document.getElementById('searchItemsInput') ? document.getElementById('searchItemsInput').value : '';
+    return filterAndSortProducts(term, currentInventoryFilter);
+}
+
+function getSelectedCsvColumns() {
+    return Array.from(document.querySelectorAll('#csvExportModal input[data-export-col]:checked')).map(function(input) {
+        return input.dataset.exportCol;
     });
-    var csv = rows.map(function(r) { return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') +
-            '"'; }).join(','); }).join('\n');
-    var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+}
+
+function getCsvColumnDefinitions(selectedIds) {
+    return csvExportColumns.filter(function(col) {
+        return selectedIds.includes(col.id);
+    });
+}
+
+function getExportGroupKey(item) {
+    var name = String(item.name || '').trim();
+    return name.charAt(0) || '';
+}
+
+function buildGroupedExportRows(items, columns) {
+    var rows = [];
+    var currentGroup = null;
+    items.forEach(function(item) {
+        var groupKey = getExportGroupKey(item);
+        if (groupKey !== currentGroup) {
+            currentGroup = groupKey;
+            var groupRow = new Array(columns.length).fill('');
+            groupRow[0] = groupKey;
+            rows.push({ type: 'group', values: groupRow });
+        }
+        rows.push({ type: 'item', values: columns.map(function(col) {
+            var value = col.getter(item);
+            return String(value === undefined || value === null ? '' : value);
+        }) });
+    });
+    return rows;
+}
+
+function createCsvCell(value) {
+    var text = String(value === undefined || value === null ? '' : value);
+    return '"' + text.replace(/"/g, '""') + '"';
+}
+
+function renderCsvPreview() {
+    var selectedIds = getSelectedCsvColumns();
+    var columns = getCsvColumnDefinitions(selectedIds);
+    var table = document.getElementById('csvPreviewTable');
+    var countLabel = document.getElementById('csvPreviewCount');
+    var items = getInventoryExportItems();
+    if (!table || !countLabel) return;
+    var thead = table.querySelector('thead');
+    var tbody = table.querySelector('tbody');
+    if (!thead || !tbody) return;
+    if (!columns.length) {
+        thead.innerHTML = '<tr><th style="text-align:right;padding:12px;">لا توجد أعمدة مختارة</th></tr>';
+        tbody.innerHTML = '<tr><td style="text-align:right;padding:12px;color:var(--text3);">الرجاء تحديد عمود واحد على الأقل لعرض المعاينة.</td></tr>';
+        countLabel.textContent = '0 منتج';
+        return;
+    }
+    thead.innerHTML = '<tr>' + columns.map(function(col) {
+        return '<th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);">' + escHtml(col.label) + '</th>';
+    }).join('') + '</tr>';
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="' + columns.length + '" style="text-align:right;padding:14px;color:var(--text3);">لا توجد منتجات لعرض المعاينة.</td></tr>';
+        countLabel.textContent = '0 منتج';
+        return;
+    }
+    var rows = buildGroupedExportRows(items, columns);
+    tbody.innerHTML = rows.map(function(row) {
+        if (row.type === 'group') {
+            return '<tr style="background:rgba(59,130,246,.08);font-weight:700;"><td colspan="' + columns.length + '" style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);">' + escHtml(row.values[0]) + '</td></tr>';
+        }
+        return '<tr>' + row.values.map(function(value) {
+            return '<td style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);">' + escHtml(value) + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+    countLabel.textContent = items.length + ' منتج';
+}
+
+function exportToXLSX(selectedColumns) {
+    var selectedIds = Array.isArray(selectedColumns) && selectedColumns.length ? selectedColumns : getSelectedCsvColumns();
+    var columns = getCsvColumnDefinitions(selectedIds);
+    if (!columns.length) {
+        showToast('❌ الرجاء اختيار عمود واحد على الأقل', 'error');
+        return;
+    }
+    var items = getInventoryExportItems();
+    var rows = [columns.map(function(col) {
+        return String(col.label || '');
+    })];
+    var grouped = buildGroupedExportRows(items, columns);
+    grouped.forEach(function(row) {
+        rows.push(row.values);
+    });
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    if (ws) {
+        rows.forEach(function(_row, r) {
+            columns.forEach(function(_col, c) {
+                var addr = XLSX.utils.encode_cell({ r: r, c: c });
+                var cell = ws[addr];
+                if (cell) {
+                    cell.s = cell.s || {};
+                    cell.s.alignment = { horizontal: 'right' };
+                }
+            });
+        });
+        // Apply group row styling after worksheet creation
+        var currentRow = 1; // 1-based row index in worksheet address encoding
+        grouped.forEach(function(row) {
+            if (row.type === 'group') {
+                for (var c = 0; c < columns.length; c++) {
+                    var addr = XLSX.utils.encode_cell({ r: currentRow, c: c });
+                    var cell = ws[addr];
+                    if (cell) {
+                        cell.s = cell.s || {};
+                        cell.s.font = Object.assign({}, cell.s.font, { bold: true, sz: 12 });
+                        cell.s.fill = { patternType: 'solid', fgColor: { rgb: 'EBF8FF' } };
+                    }
+                }
+            }
+            currentRow += 1;
+        });
+    }
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Products');
+    var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+    var blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'xmetal_report_' + new Date().toISOString().split('T')[0] + '.csv';
+    a.download = 'xmetal_inventory_' + new Date().toISOString().split('T')[0] + '.xlsx';
     a.click();
     URL.revokeObjectURL(a.href);
-    showToast('✅ تم تصدير CSV');
+    showToast('✅ تم تصدير ملف Excel بنجاح');
 }
 
 function showPdfExportModal() {
@@ -4726,6 +4889,15 @@ function showPdfExportModal() {
 
 function closePdfExportModal() {
     document.getElementById('pdfExportModal').classList.remove('show');
+}
+
+function showCsvExportModal() {
+    document.getElementById('csvExportModal').classList.add('show');
+    renderCsvPreview();
+}
+
+function closeCsvExportModal() {
+    document.getElementById('csvExportModal').classList.remove('show');
 }
 
 function createPdfDoc() {
