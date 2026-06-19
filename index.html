@@ -46,7 +46,7 @@
         </nav>
         <div class="sidebar-footer">
             <button id="exportPdfBtn"><i class="fas fa-file-pdf"></i> تصدير PDF</button>
-            <button id="exportExcelBtn"><i class="fas fa-file-csv"></i> تصدير CSV</button>
+            <button id="exportExcelBtn"><i class="fas fa-file-excel"></i> تصدير Excel</button>
             <button id="printReportBtn"><i class="fas fa-print"></i> طباعة التقرير</button>
             <button class="logout-btn" id="sidebarLogoutBtn"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</button>
         </div>
@@ -488,6 +488,38 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="csvExportModal">
+        <div class="modal-dialog csv-export-dialog" style="max-width:950px;">
+            <button class="modal-close" type="button" id="closeCsvExportModal">&times;</button>
+            <h3><i class="fas fa-file-excel"></i> إعدادات تصدير Excel</h3>
+            <p class="text-muted" style="margin-bottom:16px;">المصدر: قسم المنتجات والمخزون فقط. سيتم استخدام الترتيب الحالي في الصفحة.</p>
+            <div class="form-group">
+                <label>اختر الأعمدة</label>
+                <div class="checkbox-grid">
+                    <label><input type="checkbox" data-export-col="productName" checked> اسم المنتج</label>
+                    <label><input type="checkbox" data-export-col="purchasePrice" checked> سعر الشراء</label>
+                    <label><input type="checkbox" data-export-col="salePrice" checked> سعر المبيع</label>
+                    <label><input type="checkbox" data-export-col="secondarySalePrice" checked> سعر المبيع بالعملة الثانوية</label>
+                    <label><input type="checkbox" data-export-col="quantity" checked> الكمية</label>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:18px;">
+                <label>معاينة الجدول</label>
+                <div id="csvPreviewCount" style="margin-bottom:10px;color:var(--text3);">جاري التحضير...</div>
+                <div class="table-scroll csv-preview-table-wrapper" style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);">
+                    <table class="csv-preview-table" id="csvPreviewTable" dir="rtl" style="width:100%;border-collapse:collapse;min-width:700px;">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-actions" style="justify-content:flex-end;gap:10px;">
+                <button class="btn-outline-orange" id="cancelCsvExportBtn" type="button">إلغاء</button>
+                <button class="btn-orange" id="confirmCsvExportBtn"><i class="fas fa-download"></i> تصدير Excel</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -496,6 +528,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.3/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <!-- Foundation modules - must be loaded first -->
     <script src="js/firebase-config.js"></script>
