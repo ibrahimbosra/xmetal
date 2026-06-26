@@ -3277,13 +3277,22 @@ function buildSalesRowsHtml(items) {
     }
     var html = '';
     var lastDayKey = null;
+    var dayCostTotal = 0;
+    var dayProfitTotal = 0;
     items.forEach(function(s, i) {
         var dayKey = getDayKey(s.timestamp);
         if (dayKey !== lastDayKey) {
+            if (lastDayKey !== null) {
+                html += getDailyTotalsRowHtml(dayCostTotal, dayProfitTotal, 10);
+            }
             html += getDateSeparatorRowHtml(s.timestamp, 10);
             lastDayKey = dayKey;
+            dayCostTotal = 0;
+            dayProfitTotal = 0;
         }
         var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
+        dayCostTotal += cost;
+        dayProfitTotal += s.profit || 0;
         var profitPct = cost > 0 ? ((s.profit || 0) / cost * 100) : 0;
         html += '<tr><td>' + (i + 1) + '</td><td>' + fmtDateTime(s.timestamp) + '</td><td>' +
             escHtml(s.itemName || '--') + '</td><td>' + (s.quantity || 0) + '</td><td>' +
@@ -3295,7 +3304,18 @@ function buildSalesRowsHtml(items) {
             '%</span></td><td><button onclick="viewSaleDetail(\'' + s.saleId +
             '\')" style="background:var(--primary-light);color:var(--primary);border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;font-weight:600;margin-right:6px;">عرض</button></td></tr>';
     });
+    if (lastDayKey !== null) {
+        html += getDailyTotalsRowHtml(dayCostTotal, dayProfitTotal, 10);
+    }
     return html;
+}
+
+function getDailyTotalsRowHtml(costTotal, profitTotal, colspan) {
+    return '<tr style="background:var(--surface);font-weight:800;border-top:1px solid var(--border);border-bottom:1px solid var(--border);">' +
+        '<td colspan="6" style="padding:12px 10px;text-align:right;color:var(--text);">مجموع اليوم</td>' +
+        '<td style="padding:12px 10px;color:var(--text);">' + formatMoney(costTotal) + '</td>' +
+        '<td style="padding:12px 10px;color:var(--text);">' + formatMoney(profitTotal) + '</td>' +
+        '<td colspan="2"></td></tr>';
 }
 
 function getDateSeparatorRowHtml(ts, colspan) {
