@@ -3217,7 +3217,7 @@ if (inventoryItemsList && inventoryScrollTopBtn) {
 
 async function reloadSalesLog() {
     // Reset cache to initial state
-    salesQueryCache = { lastDoc: null, hasMore: true, currentPageItems: [] };
+    salesQueryCache = { lastDoc: null, hasMore: true, currentPageItems: [], pageEndsWithIncompleteDay: false };
     // Fetch fresh data from Firebase
     await fetchSalesPage();
     // Render the updated table
@@ -3235,13 +3235,19 @@ async function fetchSalesPage() {
         var snap = await query.get();
         var rawItems = snap.docs.map(function(d) { return { saleId: d.id, ...d.data() }; });
         var nextCursor = null;
+        var pageEndsWithIncompleteDay = false;
         if (rawItems.length > salesPageSize) {
             nextCursor = snap.docs[salesPageSize - 1];
+            var peekItem = rawItems[salesPageSize];
             rawItems = rawItems.slice(0, salesPageSize);
+            if (rawItems.length && peekItem) {
+                pageEndsWithIncompleteDay = getDayKey(rawItems[rawItems.length - 1].timestamp) === getDayKey(peekItem.timestamp);
+            }
         }
         salesQueryCache.currentPageItems = (salesQueryCache.currentPageItems || []).concat(rawItems);
         salesQueryCache.lastDoc = nextCursor;
         salesQueryCache.hasMore = !!nextCursor;
+        salesQueryCache.pageEndsWithIncompleteDay = pageEndsWithIncompleteDay;
     } catch (e) {
         salesQueryCache.hasMore = false;
         showFirestoreError(e, 'تعذّر تحميل سجلات المبيعات');
@@ -3277,20 +3283,23 @@ function buildSalesRowsHtml(items) {
     }
     var html = '';
     var lastDayKey = null;
+    var dayTotalAmount = 0;
     var dayCostTotal = 0;
     var dayProfitTotal = 0;
     items.forEach(function(s, i) {
         var dayKey = getDayKey(s.timestamp);
         if (dayKey !== lastDayKey) {
             if (lastDayKey !== null) {
-                html += getDailyTotalsRowHtml(dayCostTotal, dayProfitTotal, 10);
+                html += getDailyTotalsRowHtml(dayTotalAmount, dayCostTotal, dayProfitTotal, 10);
             }
             html += getDateSeparatorRowHtml(s.timestamp, 10);
             lastDayKey = dayKey;
+            dayTotalAmount = 0;
             dayCostTotal = 0;
             dayProfitTotal = 0;
         }
         var cost = (s.purchasePriceAtTime || 0) * (s.quantity || 0);
+        dayTotalAmount += s.totalAmount || 0;
         dayCostTotal += cost;
         dayProfitTotal += s.profit || 0;
         var profitPct = cost > 0 ? ((s.profit || 0) / cost * 100) : 0;
@@ -3304,18 +3313,19 @@ function buildSalesRowsHtml(items) {
             '%</span></td><td><button onclick="viewSaleDetail(\'' + s.saleId +
             '\')" style="background:var(--primary-light);color:var(--primary);border:none;border-radius:20px;padding:5px 12px;cursor:pointer;font-size:0.72rem;font-weight:600;margin-right:6px;">عرض</button></td></tr>';
     });
-    if (lastDayKey !== null) {
-        html += getDailyTotalsRowHtml(dayCostTotal, dayProfitTotal, 10);
+    if (lastDayKey !== null && !salesQueryCache.pageEndsWithIncompleteDay) {
+        html += getDailyTotalsRowHtml(dayTotalAmount, dayCostTotal, dayProfitTotal, 10);
     }
     return html;
 }
 
-function getDailyTotalsRowHtml(costTotal, profitTotal, colspan) {
+function getDailyTotalsRowHtml(totalAmount, costTotal, profitTotal, colspan) {
     return '<tr style="background:var(--surface);font-weight:800;border-top:1px solid var(--border);border-bottom:1px solid var(--border);">' +
-        '<td colspan="6" style="padding:12px 10px;text-align:right;color:var(--text);">مجموع اليوم</td>' +
-        '<td style="padding:12px 10px;color:var(--text);">' + formatMoney(costTotal) + '</td>' +
-        '<td style="padding:12px 10px;color:var(--text);">' + formatMoney(profitTotal) + '</td>' +
-        '<td colspan="2"></td></tr>';
+        '<td colspan="10" style="padding:12px 10px;text-align:center;color:var(--text);">' +
+        'إجمالي المبيعات ' + formatMoney(totalAmount) + ' | ' +
+        'إجمالي التكاليف ' + formatMoney(costTotal) + ' | ' +
+        'إجمالي الربح ' + formatMoney(profitTotal) +
+        '</td></tr>';
 }
 
 function getDateSeparatorRowHtml(ts, colspan) {
