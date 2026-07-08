@@ -159,6 +159,13 @@ async function applyBatchAllocationsTransaction(itemId, allocations) {
         if (!doc.exists) throw new Error('Item not found');
         var data = doc.data();
         var batches = Array.isArray(data.purchaseBatches) ? data.purchaseBatches.slice() : [];
+        var requestedQty = allocations.reduce(function(acc, alloc) { return acc + (Number(alloc.quantity) || 0); }, 0);
+        var batchQtyTotal = batches.reduce(function(acc, b) { return acc + (Number(b.quantity) || 0); }, 0);
+        var topLevelQty = Number(data.quantity) || 0;
+        if (requestedQty > 0 && batchQtyTotal < requestedQty && topLevelQty >= requestedQty) {
+            var missingQty = requestedQty - batchQtyTotal;
+            batches.push({ quantity: missingQty, unitCost: 0, supplier: '', note: 'repaired-from-stock', timestamp: Date.now() });
+        }
         // create map by timestamp to allow matching
         for (var a = 0; a < allocations.length; a++) {
             var alloc = allocations[a];
@@ -260,6 +267,7 @@ let salesTarget = parseFloat(localStorage.getItem('xmetalSalesTarget') || '0');
 let realtimeListeners = [];
 let searchDebounceTimer = null;
 let itemVisibility = {};
+let showMechanicPricesGlobally = false;
 let currentItemId = null,
     isEditingItem = false;
 // Advanced fields lazy-load state
@@ -267,6 +275,7 @@ window.advancedFieldsLoaded = false;
 window.pendingEditItem = null;
 let tempPurchaseCurrency = false,
     tempSaleCurrency = false,
+    tempMechanicCurrency = false,
     tempSellCurrency = false,
     tempEditCurrency = false;
 let currentThumbnails = [];
@@ -275,6 +284,7 @@ let sliderActiveFilter = 'all';
 let sliderSearchQuery = '';
 let globalAutoSlideDelay = 5000;
 let currentInventoryFilter = 'all';
+let currentInventorySort = (window.appState && appState.getState && appState.getState('filters.inventorySort')) || localStorage.getItem('xmetalInventorySort') || 'alphabetical';
 let hasFetchedSales = false;
 let comparisonManualRows = null;
 window._cachedStats = { allTimeProfit: 0 };
@@ -1563,16 +1573,38 @@ function getConversionDisplay(value, isInputSecondary, symbol) {
     if (isInputSecondary) { return fmtMoney(value) + ' ' + symbol + ' (≈ $' + fmtMoney(convertToPrimary(value)) + ')'; }
     return fmtMoney(convertToSecondary(value)) + ' ' + symbol;
 }
+function updateInventoryGlobalEyeButton() {
+    var btn = document.getElementById('toggleAllMechanicPricesBtn');
+    if (!btn) return;
+    btn.classList.toggle('active', showMechanicPricesGlobally);
+    var icon = btn.querySelector('i');
+    if (icon) icon.className = 'fas ' + (showMechanicPricesGlobally ? 'fa-eye' : 'fa-eye-slash');
+}
+
 function updateProductPriceDisplay() {
     var p = parseInputNumber(document.getElementById('purchasePrice') ? document.getElementById('purchasePrice').value : null);
     var s = parseInputNumber(document.getElementById('salePrice') ? document.getElementById('salePrice').value : null);
+    var m = parseInputNumber(document.getElementById('mechanicPrice') ? document.getElementById('mechanicPrice').value : null);
     p = p === null ? 0 : p;
     s = s === null ? 0 : s;
+    var mechanicDisplayValue = (m === null ? s : m);
     var sym = currencySettings.secondaryCurrencySymbol;
     var pEl = document.getElementById('purchasePriceSecondary');
     var sEl = document.getElementById('salePriceSecondary');
+    var mEl = document.getElementById('mechanicPriceSecondary');
+    var hintEl = document.getElementById('mechanicPriceHint');
     if (pEl) pEl.innerText = getConversionDisplay(p, tempPurchaseCurrency, sym);
     if (sEl) sEl.innerText = getConversionDisplay(s, tempSaleCurrency, sym);
+    if (mEl) mEl.innerText = getConversionDisplay(mechanicDisplayValue, tempMechanicCurrency, sym);
+    if (hintEl) {
+        var helperText = '';
+        if (p > 0 && mechanicDisplayValue > 0) {
+            helperText = 'الربح: ' + (window.PriceHelpers ? window.PriceHelpers.getProfitPercent(p, mechanicDisplayValue) : ((mechanicDisplayValue - p) / p * 100).toFixed(0) + '%');
+        } else if (s > 0) {
+            helperText = 'سيتم استخدام سعر البيع العام';
+        }
+        hintEl.innerText = helperText;
+    }
 }
 function updateSellPriceDisplay() {
     var v = parseFloat(document.getElementById('sellPrice') ? document.getElementById('sellPrice').value : 0) || 0;
@@ -1595,10 +1627,12 @@ function updatePriceLabels() {
     var sym = currencySettings.secondaryCurrencySymbol;
     var pel = document.getElementById('purchasePriceLabel');
     var sel = document.getElementById('salePriceLabel');
+    var mel = document.getElementById('mechanicPriceLabel');
     var spl = document.getElementById('sellPriceLabel');
     var epl = document.getElementById('editPriceLabel');
     if (pel) pel.innerHTML = 'سعر الشراء (' + (tempPurchaseCurrency ? sym : '$') + ')';
     if (sel) sel.innerHTML = 'سعر البيع (' + (tempSaleCurrency ? sym : '$') + ')';
+    if (mel) mel.innerHTML = 'سعر الميكانيكي (' + (tempMechanicCurrency ? sym : '$') + ')';
     if (spl) spl.innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
     if (epl) epl.innerHTML = 'السعر (' + (tempEditCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
 }
@@ -2478,9 +2512,50 @@ function renderDashboard() {
 function arabicAlphabeticalComparator(a, b) { return a.name.localeCompare(b.name, 'ar', { sensitivity: 'variant',
         usage: 'sort' }); }
 
+function persistInventorySort(sortMode) {
+    currentInventorySort = sortMode || 'alphabetical';
+    if (window.appState && appState.setState) appState.setState('filters.inventorySort', currentInventorySort);
+    try { localStorage.setItem('xmetalInventorySort', currentInventorySort); } catch (e) {}
+}
+
+function sortInventoryList(items, sortMode) {
+    if (!items || !items.length) return [];
+    if (window.PriceHelpers && window.PriceHelpers.sortInventoryProducts) {
+        return window.PriceHelpers.sortInventoryProducts(items, sortMode || currentInventorySort || 'alphabetical');
+    }
+    return items.slice().sort(function(a, b) {
+        var mode = sortMode || currentInventorySort || 'alphabetical';
+        if (mode === 'purchase') {
+            return (Number(b.purchasePrice) || 0) - (Number(a.purchasePrice) || 0) || arabicAlphabeticalComparator(a, b);
+        }
+        if (mode === 'sale') {
+            return (Number(b.salePrice) || 0) - (Number(a.salePrice) || 0) || arabicAlphabeticalComparator(a, b);
+        }
+        if (mode === 'quantity') {
+            return (Number(b.quantity) || 0) - (Number(a.quantity) || 0) || arabicAlphabeticalComparator(a, b);
+        }
+        return arabicAlphabeticalComparator(a, b);
+    });
+}
+
+function compareInventoryItems(a, b, sortMode) {
+    var mode = sortMode || currentInventorySort || 'alphabetical';
+    if (mode === 'purchase') {
+        return (Number(b.purchasePrice) || 0) - (Number(a.purchasePrice) || 0) || arabicAlphabeticalComparator(a, b);
+    }
+    if (mode === 'sale') {
+        return (Number(b.salePrice) || 0) - (Number(a.salePrice) || 0) || arabicAlphabeticalComparator(a, b);
+    }
+    if (mode === 'quantity') {
+        return (Number(b.quantity) || 0) - (Number(a.quantity) || 0) || arabicAlphabeticalComparator(a, b);
+    }
+    return arabicAlphabeticalComparator(a, b);
+}
+
 function filterAndSortProducts(term, stockFilter) {
     var filtered = [...allItems];
     var hasSearch = term && term.trim() !== "";
+    var sortMode = currentInventorySort || 'alphabetical';
     if (hasSearch) {
         var searchTerm = term.trim();
         filtered = filtered.filter(function(p) { return p.name.includes(searchTerm); });
@@ -2491,17 +2566,18 @@ function filterAndSortProducts(term, stockFilter) {
                         words[wi].startsWith(searchTerm)) { priority = 2; break; } } }
             p._searchPriority = priority;
         });
-        filtered.sort(function(a, b) { if (a._searchPriority !== b._searchPriority) return a._searchPriority - b
-                ._searchPriority; return arabicAlphabeticalComparator(a, b); });
-        filtered.forEach(function(p) { delete p._searchPriority; });
-    } else {
-        if (stockFilter === 'available') filtered = filtered.filter(function(i) { return i.quantity > 0; });
-        else if (stockFilter === 'outofstock') filtered = filtered.filter(function(i) { return i.quantity ===
-            0; });
-        filtered.sort(arabicAlphabeticalComparator);
     }
     if (stockFilter === 'available') filtered = filtered.filter(function(i) { return i.quantity > 0; });
     else if (stockFilter === 'outofstock') filtered = filtered.filter(function(i) { return i.quantity === 0; });
+    if (hasSearch) {
+        filtered.sort(function(a, b) {
+            if (a._searchPriority !== b._searchPriority) return a._searchPriority - b._searchPriority;
+            return compareInventoryItems(a, b, sortMode);
+        });
+        filtered.forEach(function(p) { delete p._searchPriority; });
+    } else {
+        filtered = sortInventoryList(filtered, sortMode);
+    }
     return filtered;
 }
 
@@ -2514,9 +2590,12 @@ function renderInventory() {
     filteredSorted.forEach(function(item, idx) {
         var profit = ((item.salePrice - item.purchasePrice) / item.purchasePrice * 100).toFixed(2);
         var profitClass = profit >= 0 ? 'profit-positive' : 'profit-negative';
+        var mechanicPrice = window.PriceHelpers && window.PriceHelpers.getMechanicDisplayPrice ? window.PriceHelpers.getMechanicDisplayPrice(item) : (item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : item.salePrice);
         var pSec = fmtMoney(convertToSecondary(item.purchasePrice)),
-            sSec = fmtMoney(convertToSecondary(item.salePrice));
-        var vis = itemVisibility[item.id] || false;
+            sSec = fmtMoney(convertToSecondary(item.salePrice)),
+            mSec = fmtMoney(convertToSecondary(mechanicPrice));
+        var showItemDetails = !!itemVisibility[item.id];
+        var showMechanicDetails = showMechanicPricesGlobally;
         var cardClass = item.quantity === 0 ? 'out-of-stock' : (item.quantity <= 2 ? 'low-stock' : '');
         var itemCapital = getItemInventoryCapital(item);
         html += '<div class="product-card ' + cardClass + '" data-id="' + item.id +
@@ -2525,15 +2604,19 @@ function renderInventory() {
                 .name) + '</span>' + (item.categoryName ? '<span class="product-category-tag">' + escHtml(item
                 .categoryName) + '</span>' : '') + '</div>' +
             '<div class="product-meta-wrapper"><div class="product-meta"><span><i class="fas fa-cubes"></i> ' +
-            item.quantity + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="' + (vis ? '' : 'blur-price') + '" style="font-size:0.8rem;color:var(--text2);">إجمالي التكلفة: ' + formatMoney(itemCapital) + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="profit-badge-small ' + profitClass + ' ' + (vis ? '' :
+            item.quantity + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="' + (showItemDetails ? '' : 'blur-price') + '" style="font-size:0.8rem;color:var(--text2);">إجمالي التكلفة: ' + formatMoney(itemCapital) + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="profit-badge-small ' + profitClass + ' ' + (showItemDetails ? '' :
                 'blur-price') + '">' + profit + '%</span></div>' +
-            '<button class="eye-icon" data-id="' + item.id + '"><i class="fas ' + (vis ? 'fa-eye' :
+            '<button class="eye-icon" data-id="' + item.id + '"><i class="fas ' + (showItemDetails ? 'fa-eye' :
                 'fa-eye-slash') + '"></i></button></div></div>' +
             '<div class="price-row"><div class="price-col purchase-price"><div class="price-label">شراء</div><div class="primary-price ' +
-            (vis ? '' : 'blur-price') + '">$' + fmtMoney(item.purchasePrice) +
-            '</div><div class="secondary-price ' + (vis ? '' : 'blur-price') + '">' + pSec + ' ' + currencySettings
+            (showItemDetails ? '' : 'blur-price') + '">$' + fmtMoney(item.purchasePrice) +
+            '</div><div class="secondary-price ' + (showItemDetails ? '' : 'blur-price') + '">' + pSec + ' ' + currencySettings
             .secondaryCurrencySymbol + '</div></div>' +
-            '<div class="price-col sale-price"><div class="price-label">بيع</div><div class="primary-price">$' +
+            '<div class="price-col mechanic-price"><div class="price-label">ميكانيكي</div><div class="primary-price ' +
+            (showMechanicDetails ? '' : 'blur-price') + '">$' + fmtMoney(mechanicPrice) +
+            '</div><div class="secondary-price ' + (showMechanicDetails ? '' : 'blur-price') + '">' + mSec + ' ' + currencySettings
+            .secondaryCurrencySymbol + '</div></div>' +
+            '<div class="price-col sale-price"><div class="price-label">مبيع</div><div class="primary-price">$' +
             fmtMoney(item.salePrice) + '</div><div class="secondary-price">' + sSec + ' ' + currencySettings
             .secondaryCurrencySymbol + '</div></div></div>' +
             '<div class="action-buttons"><button class="action-btn sell" data-id="' + item.id + '" ' + (item
@@ -2589,8 +2672,10 @@ function prepareAddItemForm() {
     var pbList = document.getElementById('purchaseBatchesList');
     if (pbList) pbList.innerHTML = '';
     var purchaseEl = document.getElementById('purchasePrice'); if (purchaseEl) purchaseEl.value = '';
+    var mechanicEl = document.getElementById('mechanicPrice'); if (mechanicEl) mechanicEl.value = '';
     tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+    tempMechanicCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     document.getElementById('addItemTitle').innerText = 'إضافة قطعة جديدة';
     updatePriceLabels();
     updateProductPriceDisplay();
@@ -2608,10 +2693,13 @@ function editItem(id) {
     document.getElementById('itemName').value = item.name;
     tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
+    tempMechanicCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     document.getElementById('purchasePrice').value = tempPurchaseCurrency ? fmtMoney(convertToSecondary(item.purchasePrice)) :
         fmtMoney(item.purchasePrice);
     document.getElementById('salePrice').value = tempSaleCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item
         .salePrice);
+    var mechanicValue = item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : '';
+    document.getElementById('mechanicPrice').value = mechanicValue === '' ? '' : (tempMechanicCurrency ? fmtMoney(convertToSecondary(mechanicValue)) : fmtMoney(mechanicValue));
     document.getElementById('quantity').value = item.quantity;
     var el;
     el = document.getElementById('productHidden'); if (el) el.checked = item.hidden || false;
@@ -2950,7 +3038,9 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     purchase = Number((purchase || 0).toFixed(2));
     var rawSale = parseInputNumber(document.getElementById('salePrice').value);
     var sale = rawSale === null ? 0 : (tempSaleCurrency ? convertToPrimary(rawSale) : rawSale);
-    if (!name || purchase < 0 || sale < 0 || qty < 0) return alert('بيانات غير صالحة');
+    var mechanicRaw = parseInputNumber(document.getElementById('mechanicPrice') ? document.getElementById('mechanicPrice').value : null);
+    var mechanicPrice = mechanicRaw === null ? null : (tempMechanicCurrency ? convertToPrimary(mechanicRaw) : mechanicRaw);
+    if (!name || purchase < 0 || sale < 0 || (mechanicPrice != null && mechanicPrice < 0) || qty < 0) return alert('بيانات غير صالحة');
     var catId = document.getElementById('productCategoryId').value;
     var cat = allCategories.find(function(c) { return c.id === catId; });
     var categoryName = cat ? cat.name : '';
@@ -2981,6 +3071,7 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
         specifications: specsVal,
         images: imagesVal,
         purchaseBatches: storedBatches,
+        mechanicPrice: mechanicPrice,
         categoryId: catId || null,
         categoryName: categoryName
     };
@@ -3147,6 +3238,15 @@ document.getElementById('switchSaleCurrency').addEventListener('click', function
     updatePriceLabels();
     updateProductPriceDisplay();
 });
+document.getElementById('switchMechanicCurrency').addEventListener('click', function() {
+    var inputEl = document.getElementById('mechanicPrice');
+    var v = parseInputNumber(inputEl.value);
+    v = v === null ? 0 : v;
+    tempMechanicCurrency = !tempMechanicCurrency;
+    inputEl.value = tempMechanicCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
+    updatePriceLabels();
+    updateProductPriceDisplay();
+});
 document.getElementById('switchSellCurrency').addEventListener('click', function() {
     var inputEl = document.getElementById('sellPrice');
     var v = parseInputNumber(inputEl.value);
@@ -3169,6 +3269,7 @@ document.getElementById('switchEditCurrency').addEventListener('click', function
 });
 document.getElementById('purchasePrice').addEventListener('input', updateProductPriceDisplay);
 document.getElementById('salePrice').addEventListener('input', updateProductPriceDisplay);
+document.getElementById('mechanicPrice').addEventListener('input', updateProductPriceDisplay);
 document.getElementById('sellPrice').addEventListener('input', updateSellPriceDisplay);
 var sellQtyEl = document.getElementById('sellQuantity');
 if (sellQtyEl) sellQtyEl.addEventListener('input', updateSellPriceDisplay);
@@ -3195,6 +3296,23 @@ function setupSellQuantityPresets() {
 document.getElementById('cancelItemBtn').addEventListener('click', function() { currentSection = 'inventory';
     renderCurrentSection(); });
 document.getElementById('searchItemsInput').addEventListener('input', function() { renderInventory(); });
+var inventorySortSelect = document.getElementById('inventorySortSelect');
+if (inventorySortSelect) {
+    inventorySortSelect.value = currentInventorySort || 'alphabetical';
+    inventorySortSelect.addEventListener('change', function() {
+        persistInventorySort(this.value);
+        renderInventory();
+    });
+}
+var globalMechanicToggleBtn = document.getElementById('toggleAllMechanicPricesBtn');
+if (globalMechanicToggleBtn) {
+    globalMechanicToggleBtn.addEventListener('click', function() {
+        showMechanicPricesGlobally = !showMechanicPricesGlobally;
+        updateInventoryGlobalEyeButton();
+        renderInventory();
+    });
+}
+updateInventoryGlobalEyeButton();
 document.querySelectorAll('#inventoryFilterBar .filter-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
         document.querySelectorAll('#inventoryFilterBar .filter-btn').forEach(function(b) { b.classList
@@ -3545,11 +3663,19 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
                     // need to consume additional qty from batches
                     var extraAlloc = computeBatchAllocations(prod, diff);
                     if (!extraAlloc || extraAlloc.length === 0) return alert('كمية غير متوفرة');
-                    var res = await applyBatchAllocationsTransaction(prod.id, extraAlloc);
-                    prod.purchaseBatches = res.purchaseBatches;
-                    prod.quantity = res.quantity;
-                    // append allocations to sale's allocations
-                    newSaleAllocations = newSaleAllocations.concat(extraAlloc);
+                    try {
+                        var res = await applyBatchAllocationsTransaction(prod.id, extraAlloc);
+                        prod.purchaseBatches = res.purchaseBatches;
+                        prod.quantity = res.quantity;
+                        // append allocations to sale's allocations
+                        newSaleAllocations = newSaleAllocations.concat(extraAlloc);
+                    } catch (batchErr) {
+                        // fallback to simple stock update if batch data is inconsistent
+                        var fallbackQty = await updateItemQuantityTransaction(prod.id, -diff);
+                        prod.purchaseBatches = prod.purchaseBatches || [];
+                        prod.quantity = fallbackQty;
+                        newSaleAllocations = sale.purchaseBatchAllocations ? JSON.parse(JSON.stringify(sale.purchaseBatchAllocations)) : [];
+                    }
                 } else {
                     // diff < 0 : restore some quantity back to batches using sale allocations (LIFO)
                     var toRestore = -diff;

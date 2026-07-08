@@ -65,6 +65,7 @@ const appState = {
         sales: { period: 'all', searchTerm: '', categoryId: '', productId: '', minQty: '', maxQty: '', minProfit: '', maxProfit: '' },
         activity: { period: 'all', searchTerm: '', actionType: '', entity: '', user: '', customStart: null, customEnd: null },
         inventory: 'all',
+        inventorySort: localStorage.getItem('xmetalInventorySort') || 'alphabetical',
         slider: { activeFilter: 'all', searchQuery: '' }
     },
     
