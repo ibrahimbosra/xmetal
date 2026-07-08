@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام إدارة الديون – متجر</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Cairo', sans-serif;
+      background: #f0f2f5;
+      color: #1e293b;
+      direction: rtl;
+      display: flex;
+      min-height: 100vh;
+    }
+    #toast-container {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none;
+    }
+    .toast {
+      padding: 12px 24px; border-radius: 12px; color: white; font-weight: 600; font-size: 0.95rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+      pointer-events: auto; min-width: 250px; text-align: center; backdrop-filter: blur(8px);
+    }
+    .toast.success { background: #10b981; } .toast.error { background: #ef4444; } .toast.info { background: #3b82f6; }
+    @keyframes slideIn { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeOut { to { opacity: 0; transform: translateY(-10px); } }
+    .sidebar {
+      width: 260px; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); color: white;
+      display: flex; flex-direction: column; padding: 24px 0; flex-shrink: 0; box-shadow: 4px 0 20px rgba(0,0,0,0.1);
+    }
+    .sidebar-header { padding: 0 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: center; }
+    .sidebar-header h2 { font-size: 1.6rem; font-weight: 800; background: linear-gradient(135deg, #60a5fa, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .sidebar-nav { flex: 1; padding: 20px 12px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 6px; border-radius: 12px;
+      cursor: pointer; transition: all 0.2s; font-weight: 500; color: rgba(255,255,255,0.7);
+    }
+    .nav-item:hover { background: rgba(255,255,255,0.08); color: white; }
+    .nav-item.active { background: rgba(59,130,246,0.25); color: white; }
+    .nav-item i { font-size: 1.2rem; width: 24px; text-align: center; }
+    .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.8rem; color: rgba(255,255,255,0.5); }
+    .main-content { flex: 1; padding: 24px; overflow-y: auto; background: #f0f2f5; }
+    .page { display: none; animation: fadeIn 0.3s ease; } .page.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 28px; }
+    .stat-card {
+      background: white; border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition: all 0.25s; border: 1px solid rgba(0,0,0,0.03);
+    }
+    .stat-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(0,0,0,0.08); }
+    .stat-icon { width: 54px; height: 54px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; background: var(--card-bg); color: var(--card-color); }
+    .stat-info h3 { font-size: 0.85rem; color: #64748b; margin-bottom: 4px; }
+    .stat-info .value { font-size: 1.5rem; font-weight: 800; color: #0f172a; }
+    .card-debt { --card-color: #ef4444; --card-bg: #fef2f2; } .card-customers { --card-color: #3b82f6; --card-bg: #eff6ff; }
+    .card-paid { --card-color: #10b981; --card-bg: #ecfdf5; } .card-late { --card-color: #f59e0b; --card-bg: #fffbeb; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; align-items: center; }
+    .btn {
+      font-family: 'Cairo', sans-serif; background: white; border: none; padding: 10px 18px; border-radius: 10px;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: all 0.2s; white-space: nowrap; border: 1px solid transparent;
+    }
+    .btn i { font-size: 1rem; } .btn.primary { background: #3b82f6; color: white; } .btn.primary:hover { background: #2563eb; }
+    .btn.success { background: #10b981; color: white; } .btn.success:hover { background: #059669; }
+    .btn.warning { background: #f59e0b; color: white; } .btn.warning:hover { background: #d97706; }
+    .btn.outline { background: white; border-color: #cbd5e1; color: #334155; } .btn.outline:hover { background: #f8fafc; border-color: #94a3b8; }
+    .btn.danger { background: #ef4444; color: white; } .btn.danger:hover { background: #dc2626; }
+    .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+    .search-box { position: relative; flex: 1; min-width: 240px; }
+    .modern-input, .search-box input, .search-box textarea {
+      width: 100%; padding: 10px 44px 10px 16px; border: 1px solid #e2e8f0; border-radius: 12px;
+      font-size: 0.9rem; font-family: 'Cairo', sans-serif; background: #fafbfc; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .search-box textarea { padding-right: 16px; resize: vertical; min-height: 60px; }
+    .modern-input:focus, .search-box input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); background: white; }
+    .search-box i { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
+    .filter-select {
+      padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fafbfc;
+      font-family: 'Cairo', sans-serif; font-size: 0.9rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .table-wrapper { background: white; border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid #f1f5f9; white-space: normal; word-wrap: break-word; max-width: 200px; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem; }
+    th { background: #f8fafc; font-weight: 700; color: #334155; cursor: pointer; user-select: none; font-size: 0.8rem; white-space: nowrap; }
+    th i { margin-right: 6px; font-size: 0.7rem; color: #94a3b8; }
+    tbody tr { cursor: pointer; transition: background 0.2s; } tbody tr:hover { background: #f8fafc; }
+    .badge { padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+    .badge-active { background: #dbeafe; color: #1d4ed8; } .badge-paid { background: #d1fae5; color: #065f46; }
+    .badge-overdue { background: #fee2e2; color: #991b1b; } .badge-sale { background: #fee2e2; color: #991b1b; }
+    .badge-payment { background: #d1fae5; color: #065f46; }
+    .high-debt-warning { color: #ef4444; margin-right: 4px; }
+    .amount-primary { font-weight: 800; font-size: 0.9rem; display: block; }
+    .amount-secondary { font-size: 0.7rem; color: #64748b; display: block; margin-top: 1px; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #64748b; } .empty-state i { font-size: 3.5rem; margin-bottom: 16px; color: #cbd5e1; }
+    .modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15,23,42,0.5); backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 1000;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: white; border-radius: 20px; width: 90%; max-width: 920px; max-height: 85vh;
+      overflow-y: auto; padding: 28px; box-shadow: 0 25px 50px rgba(0,0,0,0.15); animation: modalPop 0.3s ease;
+    }
+    @keyframes modalPop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .modal-content.small { max-width: 480px; padding: 24px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .modal-header h2 { font-size: 1.3rem; font-weight: 700; }
+    .close-btn { background: none; border: none; font-size: 2rem; cursor: pointer; color: #64748b; } .close-btn:hover { color: #0f172a; }
+    .customer-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; background: #f8fafc; padding: 14px; border-radius: 14px; }
+    .info-item label { display: block; font-size: 0.75rem; color: #64748b; } .info-item span { font-size: 0.95rem; font-weight: 700; }
+    .history-section { margin-top: 20px; }
+    .history-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .history-table th { background: #f1f5f9; padding: 8px 10px; font-size: 0.75rem; white-space: nowrap; cursor: default; }
+    .history-table td { padding: 8px 10px; font-size: 0.78rem; max-width: 150px; }
+    .history-table tbody tr:hover { background: #fafbfc; }
+    .history-table .sale-row { border-right: 3px solid #ef4444; } .history-table .payment-row { border-right: 3px solid #10b981; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+    .form-group { margin-bottom: 14px; } .form-group label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 0.8rem; color: #334155; }
+    .settings-form { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); }
+    .chart-container { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 24px; }
+    .currency-switch-btn {
+      cursor: pointer; font-weight: bold; font-size: 1rem; padding: 4px 8px; border-radius: 8px;
+      background: #f1f5f9; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e2e8f0;
+    }
+    .currency-switch-btn:hover { background: #e2e8f0; }
+    .total-preview { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 10px 14px; font-size: 0.95rem; font-weight: 700; color: #0369a1; margin-bottom: 14px; }
+    .date-input { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 16px; font-family: 'Cairo', sans-serif; background: #fafbfc; width: 100%; font-size: 0.9rem; }
+    .date-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); background: white; }
+    @media (max-width: 768px) {
+      body { flex-direction: column; } .sidebar { width: 100%; flex-direction: row; overflow-x: auto; padding: 12px; }
+      .sidebar-nav { display: flex; gap: 8px; padding: 0; } .nav-item { white-space: nowrap; }
+      .stats-grid { grid-template-columns: 1fr; } .toolbar { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <div id="toast-container"></div>
+  <div class="sidebar">
+    <div class="sidebar-header"><h2>📊 نظام الديون</h2></div>
+    <div class="sidebar-nav">
+      <div class="nav-item active" data-page="dashboard"><i class="fas fa-chart-pie"></i> لوحة التحكم</div>
+      <div class="nav-item" data-page="debts"><i class="fas fa-file-invoice-dollar"></i> إدارة الديون</div>
+      <div class="nav-item" data-page="customers"><i class="fas fa-users"></i> العملاء</div>
+      <div class="nav-item" data-page="settings"><i class="fas fa-cog"></i> الإعدادات</div>
+    </div>
+    <div class="sidebar-footer">نسخة 1.0 · جميع الحقوق محفوظة</div>
+  </div>
+
+  <div class="main-content">
+    <div id="page-dashboard" class="page active">
+      <div class="stats-grid" id="dashboardStats"></div>
+      <div class="chart-container" style="max-width: 500px; margin: 0 auto;"><canvas id="statusChart"></canvas></div>
+    </div>
+    <div id="page-debts" class="page">
+      <div class="toolbar">
+        <div class="search-box"><i class="fas fa-search"></i><input type="text" id="searchInput" placeholder="ابحث عن اسم العميل أو رقم الهاتف..."></div>
+        <select class="filter-select" id="statusFilter"><option value="all">جميع الحالات</option><option value="active">نشط</option><option value="paid">مسدد بالكامل</option><option value="overdue">متأخر</option></select>
+        <button class="btn primary" onclick="window.openAddDebtModal()"><i class="fas fa-plus"></i> دين جديد</button>
+        <button class="btn warning" onclick="window.openAddPaymentModal()"><i class="fas fa-hand-holding-usd"></i> دفعة</button>
+        <button class="btn success" onclick="window.openSettleModal()"><i class="fas fa-check-double"></i> سداد كامل</button>
+        <button class="btn outline" onclick="window.openAddCustomerModal()"><i class="fas fa-user-plus"></i> عميل جديد</button>
+        <button class="btn outline" onclick="window.refreshData()"><i class="fas fa-sync-alt"></i> تحديث</button>
+        <button class="btn outline" onclick="window.exportToExcel()"><i class="fas fa-file-excel"></i> Excel</button>
+        <button class="btn outline" onclick="window.exportToPDF()"><i class="fas fa-file-pdf"></i> PDF</button>
+      </div>
+      <div class="table-wrapper" id="tableContainer">
+        <div class="empty-state" id="emptyState" style="display:none;"><i class="fas fa-file-invoice-dollar"></i><h3>لا توجد ديون حالياً</h3><p>ابدأ بإضافة أول دين أو عميل جديد</p><button class="btn primary" onclick="window.openAddDebtModal()"><i class="fas fa-plus"></i> أضف دين</button></div>
+        <table id="debtTable"><thead><tr><th data-sort="id" style="width:40px;"># <i class="fas fa-sort"></i></th><th data-sort="name">اسم العميل <i class="fas fa-sort"></i></th><th data-sort="phone">رقم الهاتف <i class="fas fa-sort"></i></th><th data-sort="debt">الدين الحالي <i class="fas fa-sort"></i></th><th data-sort="status" style="width:80px;">الحالة <i class="fas fa-sort"></i></th><th data-sort="firstDate">تاريخ أول دين <i class="fas fa-sort"></i></th><th data-sort="lastActivity">آخر نشاط <i class="fas fa-sort"></i></th><th>ملاحظات</th></tr></thead><tbody id="tableBody"></tbody></table>
+      </div>
+    </div>
+    <div id="page-customers" class="page">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 20px;"><h3 style="font-weight: 700;">قائمة العملاء</h3><button class="btn primary" onclick="window.openAddCustomerModal()"><i class="fas fa-user-plus"></i> عميل جديد</button></div>
+      <div class="table-wrapper"><table><thead><tr><th style="width:40px;">#</th><th data-csort="name" style="cursor:pointer;">الاسم <i class="fas fa-sort"></i></th><th>الهاتف</th><th data-csort="debt" style="cursor:pointer;">الديون <i class="fas fa-sort"></i></th><th>ملاحظات</th><th style="width:90px;">إجراءات</th></tr></thead><tbody id="customersTableBody"></tbody></table></div>
+    </div>
+    <div id="page-settings" class="page">
+      <div class="settings-form">
+        <h3 style="margin-bottom: 20px;">إعدادات العملة والديون</h3>
+        <div class="form-group"><label>تفعيل العملة الثانوية</label><select id="secEnabled" class="filter-select" style="width:100%"><option value="false">لا</option><option value="true">نعم</option></select></div>
+        <div id="secFields" style="display:none;">
+          <div class="form-group"><label>اسم العملة الثانوية</label><input id="secName" class="modern-input" style="width:100%; padding-right:16px;" placeholder="مثال: ليرة سورية"></div>
+          <div class="form-group"><label>رمز العملة</label><input id="secSymbol" class="modern-input" style="width:100%; padding-right:16px;" placeholder="مثال: ل.س"></div>
+          <div class="form-group"><label>سعر الصرف (كم من العملة الثانوية يساوي 1 دولار)</label><input id="secRate" type="number" step="0.000001" class="modern-input" style="width:100%; padding-right:16px;" placeholder="مثال: 15000"></div>
+          <div class="form-group"><label>العملة الافتراضية لتسجيل الديون</label><select id="defaultCurrency" class="filter-select" style="width:100%"><option value="USD">دولار ($)</option><option value="SEC">العملة الثانوية</option></select></div>
+        </div>
+        <div class="form-group"><label>حد التنبيه للدين المرتفع (بالدولار)</label><input id="highDebtThreshold" type="number" step="0.01" class="modern-input" style="width:100%; padding-right:16px;" value="5000"></div>
+        <div class="form-group"><label>عدد الأيام لتأخير الدين</label><input id="overdueDays" type="number" class="modern-input" style="width:100%; padding-right:16px;" value="30"></div>
+        <button class="btn primary" id="saveSettingsBtn" style="margin-top:16px;"><i class="fas fa-save"></i> حفظ الإعدادات</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- مودال تفاصيل العميل -->
+  <div class="modal" id="detailsModal">
+    <div class="modal-content">
+      <div class="modal-header"><h2 id="detailTitle">تفاصيل العميل</h2><button class="close-btn" onclick="window.closeModal('detailsModal')">&times;</button></div>
+      <div class="customer-info" id="customerInfo"></div>
+      <div class="history-section"><h4>سجل العمليات</h4><div id="historyList" style="overflow-x:auto;"></div></div>
+      <div class="modal-actions">
+        <button class="btn warning" onclick="window.addPaymentForCustomer()"><i class="fas fa-hand-holding-usd"></i> سداد جزئي</button>
+        <button class="btn success" onclick="window.settleFullDebt()"><i class="fas fa-check-double"></i> سداد كامل</button>
+        <button class="btn primary" onclick="window.addDebtForCustomer()"><i class="fas fa-plus"></i> إضافة دين</button>
+        <button class="btn outline" onclick="window.editCustomerNotes()"><i class="fas fa-edit"></i> تعديل الملاحظات</button>
+      </div>
+    </div>
+  </div>
+  <!-- مودال إضافة/تعديل عملية -->
+  <div class="modal" id="formModal"><div class="modal-content small"><div class="modal-header"><h2 id="formTitle">نموذج</h2><button class="close-btn" onclick="window.closeModal('formModal')">&times;</button></div><div id="formContent"></div></div></div>
+  <!-- مودال تعديل عملية موجودة -->
+  <div class="modal" id="editTxModal"><div class="modal-content small"><div class="modal-header"><h2>تعديل العملية</h2><button class="close-btn" onclick="window.closeModal('editTxModal')">&times;</button></div><div id="editTxContent"></div></div></div>
+  <!-- مودال سداد كامل (اختيار عميل مدين) -->
+  <div class="modal" id="settleModal"><div class="modal-content small"><div class="modal-header"><h2>سداد كامل</h2><button class="close-btn" onclick="window.closeModal('settleModal')">&times;</button></div><div id="settleContent"></div></div></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+    import { getDatabase, ref, onValue, push, set, update, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDBIr8TJKUMFtHFREZv1b9YpDDVZZfKeak",
+      authDomain: "debts-c3ce2.firebaseapp.com",
+      databaseURL: "https://debts-c3ce2-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "debts-c3ce2",
+      storageBucket: "debts-c3ce2.firebasestorage.app",
+      messagingSenderId: "716705604250",
+      appId: "1:716705604250:web:9cdb21860bef9aa117f523"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
+    }
+
+    function getGMT3Date() {
+      const now = new Date();
+      const offset = 3 * 60 * 60 * 1000;
+      return new Date(now.getTime() + (now.getTimezoneOffset() * 60 * 1000) + offset);
+    }
+
+    let customers = {};
+    let transactions = {};
+    let settings = {
+      secondaryCurrencyEnabled: false,
+      secondaryCurrencyName: '',
+      secondaryCurrencySymbol: '',
+      exchangeRate: 1,
+      defaultCurrency: 'USD',
+      highDebtThreshold: 5000,
+      overdueDays: 30
+    };
+    let currentCustomerId = null;
+    let currentSort = { field: 'id', asc: true };
+    let currentCustomerSort = { field: 'name', asc: true };
+    let statusChart = null;
+
+    const customersRef = ref(db, 'customers');
+    const transactionsRef = ref(db, 'transactions');
+    const settingsRef = ref(db, 'settings');
+
+    onValue(customersRef, (snap) => { customers = snap.val() || {}; renderAll(); });
+    onValue(transactionsRef, (snap) => { transactions = snap.val() || {}; renderAll(); });
+    onValue(settingsRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        settings = {
+          secondaryCurrencyEnabled: data.secondaryCurrencyEnabled || false,
+          secondaryCurrencyName: data.secondaryCurrencyName || '',
+          secondaryCurrencySymbol: data.secondaryCurrencySymbol || '',
+          exchangeRate: data.exchangeRate || 1,
+          defaultCurrency: data.defaultCurrency || 'USD',
+          highDebtThreshold: data.highDebtThreshold || 5000,
+          overdueDays: data.overdueDays || 30
+        };
+      }
+      renderAll();
+    });
+
+    function toUSD(amount, currency) {
+      if (currency === 'USD') return amount;
+      if (currency === 'SEC' && settings.secondaryCurrencyEnabled && settings.exchangeRate > 0) return amount / settings.exchangeRate;
+      return 0;
+    }
+
+    function usdToSecondary(usdAmount) {
+      if (!settings.secondaryCurrencyEnabled || !settings.exchangeRate || settings.exchangeRate <= 0) return null;
+      return usdAmount * settings.exchangeRate;
+    }
+
+    function formatUSD(amount) {
+      return '$' + Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatSecondary(amount) {
+      if (!settings.secondaryCurrencyEnabled || amount === null || amount === undefined) return '';
+      return Number(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' ' + settings.secondaryCurrencySymbol;
+    }
+
+    function formatAmountByCurrency(amount, currency) {
+      if (currency === 'USD') return formatUSD(amount);
+      if (currency === 'SEC') return formatSecondary(amount);
+      return amount.toLocaleString();
+    }
+
+    function getCustomerDebtUSD(cid) {
+      const txns = Object.values(transactions).filter(t => t.customerId === cid);
+      let debt = 0;
+      txns.forEach(t => {
+        const val = toUSD(t.amount, t.currency || 'USD');
+        if (t.type === 'sale') debt += val;
+        else if (t.type === 'payment') debt -= val;
+      });
+      return debt;
+    }
+
+    function getTotalSalesUSD(cid) {
+      return Object.values(transactions).filter(t => t.customerId === cid && t.type === 'sale').reduce((sum, t) => sum + toUSD(t.amount, t.currency || 'USD'), 0);
+    }
+
+    function getFirstDebtDate(cid) {
+      const sales = Object.values(transactions).filter(t => t.customerId === cid && t.type === 'sale').sort((a, b) => a.date - b.date);
+      return sales.length ? sales[0].date : null;
+    }
+
+    function getLastActivityDate(cid) {
+      const txns = Object.values(transactions).filter(t => t.customerId === cid).sort((a, b) => b.date - a.date);
+      return txns.length ? txns[0].date : null;
+    }
+
+    function getDebtStatus(cid) {
+      const debt = getCustomerDebtUSD(cid);
+      if (debt <= 0.005) return 'paid';
+      const lastActivity = getLastActivityDate(cid);
+      if (lastActivity && (Date.now() - lastActivity) > (settings.overdueDays || 30) * 86400000) return 'overdue';
+      return 'active';
+    }
+
+    function formatPrimaryAndSecondary(amountUSD, primaryCurrency) {
+      const secAmount = usdToSecondary(amountUSD);
+      if (primaryCurrency === 'SEC' && settings.secondaryCurrencyEnabled) {
+        return `<span class="amount-primary">${formatSecondary(secAmount)}</span>` + (secAmount !== null ? `<span class="amount-secondary">≈ ${formatUSD(amountUSD)}</span>` : '');
+      } else {
+        return `<span class="amount-primary">${formatUSD(amountUSD)}</span>` + (secAmount !== null ? `<span class="amount-secondary">≈ ${formatSecondary(secAmount)}</span>` : '');
+      }
+    }
+
+    function getTopCustomers() {
+      const custArray = Object.entries(customers).map(([cid, cust]) => {
+        const txns = Object.values(transactions).filter(t => t.customerId === cid);
+        const payments = txns.filter(t => t.type === 'payment');
+        const totalPayments = payments.length;
+        const hasOverdue = getDebtStatus(cid) === 'overdue';
+        const debtUSD = getCustomerDebtUSD(cid);
+        let score = 0;
+        score += totalPayments * 10;
+        if (!hasOverdue) score += 50;
+        if (debtUSD <= 0.005) score += 20;
+        return { ...cust, cid, totalPayments, debtUSD, score };
+      });
+      custArray.sort((a, b) => b.score - a.score);
+      return custArray.slice(0, 3);
+    }
+
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        const page = item.dataset.page;
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(`page-${page}`).classList.add('active');
+        if (page === 'dashboard') updateChart();
+        if (page === 'customers') renderCustomersTable();
+        if (page === 'settings') populateSettingsForm();
+      });
+    });
+
+    function renderAll() {
+      updateDashboardStats();
+      if (document.getElementById('page-dashboard').classList.contains('active')) updateChart();
+      renderDebtTable();
+      if (document.getElementById('page-customers').classList.contains('active')) renderCustomersTable();
+    }
+
+    function updateDashboardStats() {
+      let totalDebtUSD = 0, debtorCount = 0, totalPaidUSD = 0, lateCount = 0;
+      const processed = new Set();
+      Object.values(transactions).forEach(t => {
+        const cid = t.customerId;
+        if (!processed.has(cid)) {
+          processed.add(cid);
+          const debt = getCustomerDebtUSD(cid);
+          if (debt > 0.005) { debtorCount++; totalDebtUSD += debt; if (getDebtStatus(cid) === 'overdue') lateCount++; }
+        }
+        if (t.type === 'payment') totalPaidUSD += toUSD(t.amount, t.currency || 'USD');
+      });
+
+      const topCustomers = getTopCustomers();
+      let topCustomersHtml = '<div class="stat-card" style="grid-column: 1/-1; background: #f8fafc;"><div class="stat-icon" style="background:#f1f5f9;color:#6366f1;"><i class="fas fa-star"></i></div><div class="stat-info" style="flex:1;"><h3>🏆 أفضل 3 عملاء</h3><div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:8px;">';
+      topCustomers.forEach((c, i) => {
+        topCustomersHtml += `<div style="background:white; padding:10px; border-radius:12px; border:1px solid #e2e8f0;"><strong>${i+1}. ${c.name}</strong><br><small>سدد ${c.totalPayments} دفعات</small><br><small>الديون: ${formatUSD(c.debtUSD)}</small></div>`;
+      });
+      topCustomersHtml += '</div></div></div>';
+
+      document.getElementById('dashboardStats').innerHTML = `
+        <div class="stat-card card-debt"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-info"><h3>إجمالي الديون</h3><div class="value">${formatPrimaryAndSecondary(totalDebtUSD, settings.defaultCurrency)}</div></div></div>
+        <div class="stat-card card-customers"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-info"><h3>العملاء المدينون</h3><div class="value">${debtorCount}</div></div></div>
+        <div class="stat-card card-paid"><div class="stat-icon"><i class="fas fa-check-circle"></i></div><div class="stat-info"><h3>المبالغ المسددة</h3><div class="value">${formatPrimaryAndSecondary(totalPaidUSD, settings.defaultCurrency)}</div></div></div>
+        <div class="stat-card card-late"><div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="stat-info"><h3>ديون متأخرة</h3><div class="value">${lateCount}</div></div></div>
+        ${topCustomersHtml}
+      `;
+    }
+
+    function updateChart() {
+      const canvas = document.getElementById('statusChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const active = Object.keys(customers).filter(cid => getDebtStatus(cid) === 'active').length;
+      const paid = Object.keys(customers).filter(cid => getDebtStatus(cid) === 'paid').length;
+      const overdue = Object.keys(customers).filter(cid => getDebtStatus(cid) === 'overdue').length;
+      if (statusChart) statusChart.destroy();
+      statusChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: ['نشط', 'مسدد', 'متأخر'], datasets: [{ data: [active, paid, overdue], backgroundColor: ['#3b82f6', '#10b981', '#ef4444'], borderWidth: 0, borderRadius: 8 }] },
+        options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo' } } } } }
+      });
+    }
+
+    function renderDebtTable() {
+      const search = document.getElementById('searchInput').value.trim().toLowerCase();
+      const statusFilter = document.getElementById('statusFilter').value;
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+      const customersWithDebt = Object.keys(customers).filter(cid => Object.values(transactions).some(t => t.customerId === cid)).map(cid => ({
+        id: cid, ...customers[cid],
+        debtUSD: getCustomerDebtUSD(cid), status: getDebtStatus(cid), firstDate: getFirstDebtDate(cid), lastActivity: getLastActivityDate(cid)
+      }));
+      let filtered = customersWithDebt.filter(c => {
+        if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+        if (search && !c.name.toLowerCase().includes(search) && !(c.phone && c.phone.includes(search))) return false;
+        return true;
+      });
+      filtered.sort((a, b) => {
+        let valA, valB;
+        switch (currentSort.field) {
+          case 'name': valA = a.name; valB = b.name; break;
+          case 'phone': valA = a.phone || ''; valB = b.phone || ''; break;
+          case 'debt': valA = a.debtUSD; valB = b.debtUSD; break;
+          case 'status': valA = a.status; valB = b.status; break;
+          case 'firstDate': valA = a.firstDate || 0; valB = b.firstDate || 0; break;
+          case 'lastActivity': valA = a.lastActivity || 0; valB = b.lastActivity || 0; break;
+          default: valA = a.id; valB = b.id;
+        }
+        return (valA < valB ? -1 : 1) * (currentSort.asc ? 1 : -1);
+      });
+      const emptyState = document.getElementById('emptyState');
+      const debtTable = document.getElementById('debtTable');
+      if (filtered.length === 0) { emptyState.style.display = 'block'; debtTable.style.display = 'none'; }
+      else {
+        emptyState.style.display = 'none'; debtTable.style.display = '';
+        filtered.forEach((c, i) => {
+          const tr = document.createElement('tr');
+          const highDebt = c.debtUSD > (settings.highDebtThreshold||5000);
+          const phoneDisplay = c.phone || 'غير متوفر';
+          tr.innerHTML = `
+            <td>${i+1}</td>
+            <td>${highDebt?'<span class="high-debt-warning"><i class="fas fa-exclamation-circle"></i></span>':''}${c.name}</td>
+            <td>${phoneDisplay}</td>
+            <td>${formatPrimaryAndSecondary(c.debtUSD, settings.defaultCurrency)}</td>
+            <td><span class="badge badge-${c.status}">${c.status==='active'?'نشط':c.status==='paid'?'مسدد':'متأخر'}</span></td>
+            <td>${c.firstDate?new Date(c.firstDate).toLocaleDateString('ar-SA'):'-'}</td>
+            <td>${c.lastActivity?new Date(c.lastActivity).toLocaleDateString('ar-SA'):'-'}</td>
+            <td>${c.notes||'-'}</td>
+          `;
+          tr.addEventListener('click', () => window.openCustomerDetails(c.id));
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    window.openCustomerDetails = function(cid) {
+      currentCustomerId = cid;
+      const cust = customers[cid];
+      const debtUSD = getCustomerDebtUSD(cid);
+      const status = getDebtStatus(cid);
+      const totalSalesUSD = getTotalSalesUSD(cid);
+      const phoneDisplay = cust.phone || 'غير متوفر';
+      document.getElementById('detailTitle').textContent = cust.name;
+      document.getElementById('customerInfo').innerHTML = `
+        <div class="info-item"><label>الاسم</label><span>${cust.name}</span></div>
+        <div class="info-item"><label>الهاتف</label><span>${phoneDisplay}</span></div>
+        <div class="info-item"><label>الدين الحالي</label><span>${formatPrimaryAndSecondary(debtUSD, settings.defaultCurrency)}</span></div>
+        <div class="info-item"><label>الحالة</label><span class="badge badge-${status}">${status==='active'?'نشط':status==='paid'?'مسدد':'متأخر'}</span></div>
+        <div class="info-item"><label>إجمالي المبيعات</label><span>${formatPrimaryAndSecondary(totalSalesUSD, settings.defaultCurrency)}</span></div>
+      `;
+      renderHistory(cid);
+      document.getElementById('detailsModal').classList.add('active');
+    };
+
+    function renderHistory(cid) {
+      const container = document.getElementById('historyList');
+      const txns = Object.entries(transactions).filter(([id,t])=>t.customerId===cid).sort((a,b)=>b[1].date-a[1].date);
+      if (txns.length === 0) {
+        container.innerHTML = '<p style="text-align:center;color:#64748b;padding:20px;">لا توجد عمليات بعد.</p>';
+        return;
+      }
+      let html = `
+        <table class="history-table">
+          <thead><tr><th>النوع</th><th>اسم القطعة</th><th>سعر القطعة</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th><th>ملاحظات</th><th style="width:60px;"></th></tr></thead>
+          <tbody>`;
+      txns.forEach(([id, t]) => {
+        const isSale = t.type === 'sale';
+        const rowClass = isSale ? 'sale-row' : 'payment-row';
+        const typeBadge = isSale ? '<span class="badge badge-sale">بيع آجل</span>' : '<span class="badge badge-payment">دفعة</span>';
+        const currency = t.currency || 'USD';
+        const itemName = t.itemName || '-';
+        const quantity = t.quantity || '-';
+        const unitPrice = t.unitPrice ? formatAmountByCurrency(t.unitPrice, currency) : '-';
+        const totalDisplay = formatAmountByCurrency(t.amount, currency);
+        const dateStr = new Date(t.date).toLocaleDateString('ar-SA');
+        const notes = t.notes || '-';
+        html += `
+          <tr class="${rowClass}">
+            <td>${typeBadge}</td>
+            <td>${itemName}</td>
+            <td>${unitPrice}</td>
+            <td>${quantity}</td>
+            <td>${totalDisplay}</td>
+            <td>${dateStr}</td>
+            <td><small>${notes}</small></td>
+            <td style="white-space:nowrap;">
+              <button class="btn btn-sm outline" onclick="event.stopPropagation();window.openEditModal('${id}')" title="تعديل"><i class="fas fa-edit"></i></button>
+              <button class="btn btn-sm danger" style="padding:6px 8px;" onclick="event.stopPropagation();window.deleteTransaction('${id}')" title="حذف"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>`;
+      });
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    window.addPaymentForCustomer = ()=>{if(currentCustomerId)openFormModal('payment',currentCustomerId);};
+    window.addDebtForCustomer = ()=>{if(currentCustomerId)openFormModal('sale',currentCustomerId);};
+    window.settleFullDebt = function() {
+      if (!currentCustomerId) return;
+      const debtUSD = getCustomerDebtUSD(currentCustomerId);
+      if (debtUSD <= 0.005) { showToast('لا يوجد دين مستحق', 'info'); return; }
+      const defaultCurr = settings.defaultCurrency || 'USD';
+      const settleAmount = defaultCurr === 'SEC' ? (debtUSD * (settings.exchangeRate || 1)) : debtUSD;
+      if (confirm(`سداد كامل الدين (${formatPrimaryAndSecondary(debtUSD, defaultCurr).replace(/<[^>]*>/g, '')})؟`)) {
+        set(push(ref(db, 'transactions')), {
+          customerId: currentCustomerId, type: 'payment', currency: defaultCurr,
+          amount: Math.round(settleAmount * 100) / 100, rateAtTransaction: defaultCurr==='SEC'?(settings.exchangeRate||1):1,
+          date: getGMT3Date().getTime(), notes: 'سداد كامل'
+        }).then(() => { showToast('تم السداد بنجاح', 'success'); window.openCustomerDetails(currentCustomerId); });
+      }
+    };
+    window.editCustomerNotes = ()=>{
+      if(!currentCustomerId)return;
+      const notes = prompt('أدخل الملاحظات:',customers[currentCustomerId]?.notes||'');
+      if(notes!==null) update(ref(db,'customers/'+currentCustomerId),{notes}).then(()=>showToast('تم تحديث الملاحظات','success'));
+    };
+
+    window.openAddDebtModal = ()=>openFormModal('sale');
+    window.openAddPaymentModal = ()=>openFormModal('payment');
+    window.openAddCustomerModal = ()=>openFormModal('customer');
+
+    // نافذة سداد كامل من الصفحة الرئيسية
+    window.openSettleModal = function() {
+      const modal = document.getElementById('settleModal');
+      const content = document.getElementById('settleContent');
+      modal.classList.add('active');
+      const debtors = Object.keys(customers).filter(cid => getCustomerDebtUSD(cid) > 0.005);
+      if (debtors.length === 0) {
+        content.innerHTML = '<p style="text-align:center;color:#64748b;">لا يوجد عملاء مدينون حالياً.</p>';
+        return;
+      }
+      let options = debtors.map(cid => `<option value="${cid}">${customers[cid].name} (${customers[cid].phone || 'غير متوفر'}) - الدين: ${formatUSD(getCustomerDebtUSD(cid))}</option>`).join('');
+      content.innerHTML = `
+        <div class="form-group"><label>اختر العميل</label><select id="settleCustomerId" class="filter-select" style="width:100%">${options}</select></div>
+        <button class="btn success" onclick="window.confirmSettle()">تأكيد السداد الكامل</button>
+      `;
+    };
+
+    window.confirmSettle = function() {
+      const cid = document.getElementById('settleCustomerId').value;
+      if (!cid) return;
+      const debtUSD = getCustomerDebtUSD(cid);
+      if (debtUSD <= 0.005) { showToast('العميل ليس عليه دين', 'info'); return; }
+      const defaultCurr = settings.defaultCurrency || 'USD';
+      const settleAmount = defaultCurr === 'SEC' ? (debtUSD * (settings.exchangeRate || 1)) : debtUSD;
+      if (confirm(`سداد كامل الدين للعميل (${customers[cid].name})؟`)) {
+        set(push(ref(db, 'transactions')), {
+          customerId: cid,
+          type: 'payment',
+          currency: defaultCurr,
+          amount: Math.round(settleAmount * 100) / 100,
+          rateAtTransaction: defaultCurr === 'SEC' ? (settings.exchangeRate || 1) : 1,
+          date: getGMT3Date().getTime(),
+          notes: 'سداد كامل'
+        }).then(() => {
+          showToast('تم السداد بنجاح', 'success');
+          window.closeModal('settleModal');
+        }).catch(err => showToast('خطأ: ' + err.message, 'error'));
+      }
+    };
+
+    function openFormModal(type, customerId=null) {
+      const modal = document.getElementById('formModal');
+      const title = document.getElementById('formTitle');
+      const content = document.getElementById('formContent');
+      modal.classList.add('active');
+      if(type==='customer'){
+        title.textContent='إضافة عميل جديد';
+        content.innerHTML = `
+          <div class="form-group"><label>الاسم</label><input id="custName" class="modern-input search-box" style="width:100%;padding-right:16px;"></div>
+          <div class="form-group"><label>الهاتف (اختياري)</label><input id="custPhone" class="modern-input search-box" style="width:100%;padding-right:16px;"></div>
+          <div class="form-group"><label>ملاحظات</label><textarea id="custNotes" class="modern-input search-box" style="width:100%;" rows="2"></textarea></div>
+          <button class="btn primary" id="saveCustomerBtn">حفظ</button>`;
+        document.getElementById('saveCustomerBtn').onclick = saveCustomer;
+      } else if (type==='sale') {
+        title.textContent = 'إضافة دين جديد';
+        const opts = Object.keys(customers).map(cid=>`<option value="${cid}" ${cid===customerId?'selected':''}>${customers[cid].name} (${customers[cid].phone || 'غير متوفر'})</option>`).join('');
+        const secEnabled = settings.secondaryCurrencyEnabled;
+        const defaultCurr = settings.defaultCurrency || 'USD';
+        const secSymbol = settings.secondaryCurrencySymbol || 'ل.س';
+        const today = getGMT3Date().toISOString().split('T')[0];
+        content.innerHTML = `
+          <div class="form-group"><label>العميل</label><select id="txCustomerId" class="filter-select" style="width:100%">${opts}</select></div>
+          <div class="form-group"><label>اسم القطعة</label><input id="itemName" class="modern-input search-box" style="width:100%;padding-right:16px;" placeholder="اسم القطعة أو المنتج"></div>
+          <div style="display: flex; gap: 10px; align-items: flex-end;">
+            <div class="form-group" style="flex: 0.8;"><label>الكمية</label><input id="quantity" type="number" step="1" min="1" value="1" class="modern-input" style="width:100%;padding:10px 12px;text-align:center;" oninput="window.updateTotalPreview()"></div>
+            <div class="form-group" style="flex: 1.2;">
+              <label>سعر القطعة</label>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <input id="unitPrice" type="number" step="0.01" min="0.01" class="modern-input" style="width:100%;padding:10px 12px;" oninput="window.updateTotalPreview()">
+                <span class="currency-switch-btn" onclick="window.switchCurrency()" title="تبديل العملة">
+                  <span id="currencySymbol">${defaultCurr === 'USD' ? '$' : secSymbol}</span>
+                  <i class="fas fa-exchange-alt" style="font-size: 0.6rem;"></i>
+                </span>
+              </div>
+            </div>
+          </div>
+          <select id="txCurrency" style="display:none;">
+            <option value="USD" ${defaultCurr === 'USD' ? 'selected' : ''}>دولار</option>
+            ${secEnabled ? `<option value="SEC" ${defaultCurr === 'SEC' ? 'selected' : ''}>${settings.secondaryCurrencyName}</option>` : ''}
+          </select>
+          <div class="form-group"><label>تاريخ العملية</label><input type="date" id="txDate" value="${today}" class="date-input" style="width:100%;"></div>
+          <div class="total-preview" id="totalPreview">المجموع: -</div>
+          <div class="form-group"><label>ملاحظات</label><textarea id="txNotes" class="modern-input search-box" style="width:100%;" rows="2"></textarea></div>
+          <button class="btn primary" id="saveTxBtn">حفظ</button>`;
+        document.getElementById('saveTxBtn').onclick = ()=>saveTransaction('sale');
+        window.switchCurrency = function() {
+          const select = document.getElementById('txCurrency');
+          const symbolEl = document.getElementById('currencySymbol');
+          if (!select || !symbolEl) return;
+          const newCurrency = select.value === 'USD' ? 'SEC' : 'USD';
+          select.value = newCurrency;
+          symbolEl.textContent = newCurrency === 'USD' ? '$' : secSymbol;
+          window.updateTotalPreview();
+        };
+        window.updateTotalPreview = function() {
+          const qty = parseInt(document.getElementById('quantity').value) || 0;
+          const price = parseFloat(document.getElementById('unitPrice').value) || 0;
+          const total = qty * price;
+          const curr = document.getElementById('txCurrency').value;
+          const display = curr === 'USD' ? formatUSD(total) : total.toLocaleString('en-US') + ' ' + secSymbol;
+          document.getElementById('totalPreview').textContent = 'المجموع: ' + display;
+        };
+        setTimeout(() => { window.updateTotalPreview(); }, 100);
+      } else if (type==='payment') {
+        title.textContent = 'تسجيل دفعة';
+        const opts = Object.keys(customers).map(cid=>`<option value="${cid}" ${cid===customerId?'selected':''}>${customers[cid].name} (${customers[cid].phone || 'غير متوفر'})</option>`).join('');
+        const secEnabled = settings.secondaryCurrencyEnabled;
+        const defaultCurr = settings.defaultCurrency || 'USD';
+        const today = getGMT3Date().toISOString().split('T')[0];
+        content.innerHTML = `
+          <div class="form-group"><label>العميل</label><select id="txCustomerId" class="filter-select" style="width:100%">${opts}</select></div>
+          <div class="form-group"><label>العملة</label><select id="txCurrency" class="filter-select" style="width:100%">
+            <option value="USD" ${defaultCurr==='USD'?'selected':''}>دولار ($)</option>
+            ${secEnabled?`<option value="SEC" ${defaultCurr==='SEC'?'selected':''}>${settings.secondaryCurrencyName} (${settings.secondaryCurrencySymbol})</option>`:''}
+          </select></div>
+          <div class="form-group"><label>المبلغ</label><input id="txAmount" type="number" step="0.01" class="modern-input search-box" style="width:100%;padding-right:16px;"></div>
+          <div class="form-group"><label>تاريخ العملية</label><input type="date" id="txDate" value="${today}" class="date-input" style="width:100%;"></div>
+          <div class="form-group"><label>ملاحظات</label><textarea id="txNotes" class="modern-input search-box" style="width:100%;" rows="2"></textarea></div>
+          <button class="btn primary" id="saveTxBtn">حفظ</button>`;
+        document.getElementById('saveTxBtn').onclick = ()=>saveTransaction('payment');
+      }
+    }
+
+    function saveCustomer(){
+      const name = document.getElementById('custName').value.trim();
+      const phone = document.getElementById('custPhone').value.trim();
+      const notes = document.getElementById('custNotes').value.trim();
+      if(!name) return showToast('الاسم مطلوب','error');
+      set(push(ref(db,'customers')),{name, phone, notes, createdAt:serverTimestamp()})
+        .then(()=>{window.closeModal('formModal');showToast('تم إضافة العميل بنجاح','success');})
+        .catch(err=>showToast('خطأ: '+err.message,'error'));
+    }
+
+    function saveTransaction(type){
+      const cid = document.getElementById('txCustomerId').value;
+      const currency = document.getElementById('txCurrency').value;
+      const notes = document.getElementById('txNotes').value;
+      let amount, extraData = {}, transactionDate;
+      if (type === 'sale') {
+        const itemName = document.getElementById('itemName').value.trim();
+        const quantity = parseInt(document.getElementById('quantity').value) || 0;
+        const unitPrice = parseFloat(document.getElementById('unitPrice').value) || 0;
+        const dateStr = document.getElementById('txDate').value;
+        if (!itemName) return showToast('اسم القطعة مطلوب', 'error');
+        if (quantity <= 0) return showToast('الكمية غير صحيحة', 'error');
+        if (unitPrice <= 0) return showToast('سعر القطعة غير صحيح', 'error');
+        amount = quantity * unitPrice;
+        extraData = { itemName, quantity, unitPrice };
+        transactionDate = dateStr ? new Date(dateStr + 'T00:00:00+03:00').getTime() : getGMT3Date().getTime();
+      } else {
+        amount = parseFloat(document.getElementById('txAmount').value);
+        if (isNaN(amount) || amount <= 0) return showToast('المبلغ غير صحيح', 'error');
+        const dateStr = document.getElementById('txDate').value;
+        transactionDate = dateStr ? new Date(dateStr + 'T00:00:00+03:00').getTime() : getGMT3Date().getTime();
+      }
+      const rate = currency==='SEC'?(settings.exchangeRate||1):1;
+      set(push(ref(db,'transactions')), { customerId: cid, type, currency, amount, rateAtTransaction: rate, date: transactionDate, notes, ...extraData })
+        .then(()=>{window.closeModal('formModal');showToast('تمت العملية بنجاح','success');})
+        .catch(err=>showToast('خطأ: '+err.message,'error'));
+    }
+
+    window.openEditModal = function(txId) {
+      const tx = transactions[txId];
+      if (!tx) return;
+      const modal = document.getElementById('editTxModal');
+      const content = document.getElementById('editTxContent');
+      modal.classList.add('active');
+      const currency = tx.currency || 'USD';
+      const secSymbol = settings.secondaryCurrencySymbol || 'ل.س';
+      const today = new Date(tx.date).toISOString().split('T')[0];
+      if (tx.type === 'sale') {
+        content.innerHTML = `
+          <div class="form-group"><label>اسم القطعة</label><input id="editItemName" class="modern-input search-box" style="width:100%;padding-right:16px;" value="${tx.itemName || ''}"></div>
+          <div style="display: flex; gap: 10px; align-items: flex-end;">
+            <div class="form-group" style="flex: 0.8;"><label>الكمية</label><input id="editQuantity" type="number" step="1" min="1" value="${tx.quantity || 1}" class="modern-input" style="width:100%;padding:10px 12px;text-align:center;"></div>
+            <div class="form-group" style="flex: 1.2;"><label>سعر القطعة</label><input id="editUnitPrice" type="number" step="0.01" min="0.01" value="${tx.unitPrice || 0}" class="modern-input" style="width:100%;padding:10px 12px;"></div>
+          </div>
+          <div class="form-group"><label>تاريخ العملية</label><input type="date" id="editTxDate" value="${today}" class="date-input" style="width:100%;"></div>
+          <div class="form-group"><label>ملاحظات</label><textarea id="editTxNotes" class="modern-input search-box" style="width:100%;" rows="2">${tx.notes || ''}</textarea></div>
+          <button class="btn primary" onclick="window.updateTransaction('${txId}', 'sale')">حفظ التعديلات</button>`;
+      } else {
+        content.innerHTML = `
+          <div class="form-group"><label>المبلغ</label><input id="editTxAmount" type="number" step="0.01" value="${tx.amount}" class="modern-input search-box" style="width:100%;padding-right:16px;"></div>
+          <div class="form-group"><label>تاريخ العملية</label><input type="date" id="editTxDate" value="${today}" class="date-input" style="width:100%;"></div>
+          <div class="form-group"><label>ملاحظات</label><textarea id="editTxNotes" class="modern-input search-box" style="width:100%;" rows="2">${tx.notes || ''}</textarea></div>
+          <button class="btn primary" onclick="window.updateTransaction('${txId}', 'payment')">حفظ التعديلات</button>`;
+      }
+    };
+
+    window.updateTransaction = function(txId, type) {
+      const tx = transactions[txId];
+      if (!tx) return;
+      let newData = { notes: document.getElementById('editTxNotes').value };
+      const dateStr = document.getElementById('editTxDate').value;
+      if (dateStr) newData.date = new Date(dateStr + 'T00:00:00+03:00').getTime();
+      if (type === 'sale') {
+        const itemName = document.getElementById('editItemName').value.trim();
+        const quantity = parseInt(document.getElementById('editQuantity').value) || 0;
+        const unitPrice = parseFloat(document.getElementById('editUnitPrice').value) || 0;
+        if (!itemName || quantity <= 0 || unitPrice <= 0) return showToast('بيانات غير صحيحة', 'error');
+        newData.itemName = itemName;
+        newData.quantity = quantity;
+        newData.unitPrice = unitPrice;
+        newData.amount = quantity * unitPrice;
+      } else {
+        const amount = parseFloat(document.getElementById('editTxAmount').value);
+        if (isNaN(amount) || amount <= 0) return showToast('المبلغ غير صحيح', 'error');
+        newData.amount = amount;
+      }
+      update(ref(db, 'transactions/' + txId), newData)
+        .then(() => { window.closeModal('editTxModal'); showToast('تم التعديل بنجاح', 'success'); })
+        .catch(err => showToast('خطأ: ' + err.message, 'error'));
+    };
+
+    window.deleteTransaction = function(txId){
+      if(confirm('حذف العملية؟')) remove(ref(db,'transactions/'+txId)).then(()=>showToast('تم الحذف','success'));
+    };
+
+    window.closeModal = (id)=>document.getElementById(id).classList.remove('active');
+
+    function renderCustomersTable(){
+      const tbody = document.getElementById('customersTableBody');
+      if(!tbody)return;
+      tbody.innerHTML='';
+      const customersArray = Object.entries(customers).map(([cid,cust])=>{ return { cid, ...cust, debtUSD: getCustomerDebtUSD(cid) }; });
+      customersArray.sort((a, b) => {
+        let valA = currentCustomerSort.field === 'debt' ? a.debtUSD : a.name;
+        let valB = currentCustomerSort.field === 'debt' ? b.debtUSD : b.name;
+        if (valA < valB) return currentCustomerSort.asc ? -1 : 1;
+        if (valA > valB) return currentCustomerSort.asc ? 1 : -1;
+        return 0;
+      });
+      customersArray.forEach((cust, idx) => {
+        const tr = document.createElement('tr');
+        const phoneDisplay = cust.phone || 'غير متوفر';
+        tr.innerHTML = `
+          <td>${idx+1}</td><td>${cust.name}</td><td>${phoneDisplay}</td><td>${formatPrimaryAndSecondary(cust.debtUSD, settings.defaultCurrency)}</td><td>${cust.notes||'-'}</td>
+          <td style="white-space: nowrap;">
+            <button class="btn outline" style="padding:4px 8px;" onclick="event.stopPropagation();window.editCustomer('${cust.cid}')"><i class="fas fa-edit"></i></button>
+            <button class="btn outline" style="padding:4px 8px;color:#ef4444;" onclick="event.stopPropagation();window.deleteCustomer('${cust.cid}')"><i class="fas fa-trash"></i></button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.querySelectorAll('#page-customers th[data-csort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const field = th.dataset.csort;
+        currentCustomerSort = { field, asc: currentCustomerSort.field === field ? !currentCustomerSort.asc : true };
+        renderCustomersTable();
+        document.querySelectorAll('#page-customers th i').forEach(i => i.className = 'fas fa-sort');
+        th.querySelector('i').className = currentCustomerSort.asc ? 'fas fa-sort-up' : 'fas fa-sort-down';
+      });
+    });
+
+    window.editCustomer = function(cid){
+      const cust = customers[cid];
+      const name = prompt('الاسم:',cust.name);
+      if(name!==null){
+        const phone = prompt('الهاتف:',cust.phone || '');
+        if(phone!==null) update(ref(db,'customers/'+cid),{name, phone}).then(()=>showToast('تم التعديل','success'));
+      }
+    };
+    window.deleteCustomer = function(cid){
+      if(confirm('حذف العميل وجميع معاملاته؟')){
+        remove(ref(db,'customers/'+cid));
+        Object.keys(transactions).forEach(tid=>{if(transactions[tid].customerId===cid)remove(ref(db,'transactions/'+tid));});
+        showToast('تم الحذف','success');
+      }
+    };
+
+    function populateSettingsForm(){
+      document.getElementById('secEnabled').value = settings.secondaryCurrencyEnabled?'true':'false';
+      document.getElementById('secName').value = settings.secondaryCurrencyName||'';
+      document.getElementById('secSymbol').value = settings.secondaryCurrencySymbol||'';
+      document.getElementById('secRate').value = settings.exchangeRate||'';
+      document.getElementById('defaultCurrency').value = settings.defaultCurrency||'USD';
+      document.getElementById('highDebtThreshold').value = settings.highDebtThreshold||5000;
+      document.getElementById('overdueDays').value = settings.overdueDays||30;
+      toggleSecFieldsInSettings();
+    }
+    function toggleSecFieldsInSettings(){
+      document.getElementById('secFields').style.display = document.getElementById('secEnabled').value==='true'?'block':'none';
+    }
+    document.getElementById('secEnabled').addEventListener('change', toggleSecFieldsInSettings);
+    document.getElementById('saveSettingsBtn').addEventListener('click',()=>{
+      const enabled = document.getElementById('secEnabled').value==='true';
+      const name = document.getElementById('secName').value.trim();
+      const symbol = document.getElementById('secSymbol').value.trim();
+      const rate = parseFloat(document.getElementById('secRate').value);
+      const defaultCurr = document.getElementById('defaultCurrency').value;
+      const threshold = parseFloat(document.getElementById('highDebtThreshold').value);
+      const overdue = parseInt(document.getElementById('overdueDays').value);
+      if(enabled&&(!name||!symbol||isNaN(rate)||rate<=0)) return showToast('بيانات العملة الثانوية غير صحيحة','error');
+      set(ref(db,'settings'),{
+        secondaryCurrencyEnabled:enabled, secondaryCurrencyName:enabled?name:'', secondaryCurrencySymbol:enabled?symbol:'',
+        exchangeRate:enabled?rate:1, defaultCurrency:defaultCurr, highDebtThreshold:threshold, overdueDays:overdue, lastUpdated:serverTimestamp()
+      }).then(()=>showToast('تم حفظ الإعدادات','success'));
+    });
+
+    document.getElementById('searchInput').addEventListener('input', renderDebtTable);
+    document.getElementById('statusFilter').addEventListener('change', renderDebtTable);
+    document.querySelectorAll('#debtTable th[data-sort]').forEach(th=>{
+      th.addEventListener('click',()=>{
+        const field = th.dataset.sort;
+        currentSort = {field, asc: currentSort.field===field?!currentSort.asc:true};
+        renderDebtTable();
+        document.querySelectorAll('#debtTable th i').forEach(i=>i.className='fas fa-sort');
+        th.querySelector('i').className = currentSort.asc?'fas fa-sort-up':'fas fa-sort-down';
+      });
+    });
+
+    window.exportToExcel = ()=>{
+      const rows=[['#','الاسم','الهاتف','الدين','الحالة','أول دين','آخر نشاط','ملاحظات']];
+      document.querySelectorAll('#tableBody tr').forEach(tr=>rows.push(Array.from(tr.querySelectorAll('td')).map(td=>td.textContent.trim().replace(/\n/g,' '))));
+      const csv="data:text/csv;charset=utf-8,"+rows.map(e=>e.join(",")).join("\n");
+      const a=document.createElement('a');a.href=encodeURI(csv);a.download='debts.csv';a.click();
+    };
+    window.exportToPDF = ()=>window.print();
+    window.refreshData = ()=>{};
+    window.onclick = (e)=>{if(e.target.classList.contains('modal'))e.target.classList.remove('active');};
+  </script>
+</body>
+</html>
