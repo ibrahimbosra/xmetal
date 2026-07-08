@@ -976,6 +976,27 @@ tr:hover td {
     color: #fff;
     transform: scale(1.05);
 }
+.inventory-global-eye-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4a6fa5;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+.inventory-global-eye-btn.active {
+    background: #4a6fa5;
+    color: #fff;
+}
+.inventory-global-eye-btn:hover {
+    transform: translateY(-1px);
+}
 .price-row {
     display: flex;
     background: #f8fafd;
@@ -1004,12 +1025,21 @@ tr:hover td {
 .purchase-price .primary-price {
     color: #e55353;
 }
+.mechanic-price .primary-price {
+    color: #2563eb;
+}
 .sale-price .primary-price {
     color: #2e9a5e;
 }
 .secondary-price {
     font-size: 0.7rem;
     color: #5f6c84;
+}
+.price-hint {
+    font-size: 0.72rem;
+    color: #4a6fa5;
+    margin-top: 4px;
+    min-height: 1rem;
 }
 .blur-price {
     filter: blur(5px);
