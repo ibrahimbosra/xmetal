@@ -39,6 +39,7 @@
             <button data-section="profitAnalysis"><i class="fas fa-chart-line"></i> تحليل الأرباح</button>
             <button data-section="comparison"><i class="fas fa-balance-scale"></i> مقارنة الفترات</button>
             <button data-section="insights"><i class="fas fa-lightbulb"></i> تحليلات ذكية</button>
+            <button data-section="aiAssistant"><i class="fas fa-robot"></i> AI Assistant</button>
             <button data-section="expenses"><i class="fas fa-money-bill-wave"></i> المصاريف التشغيلية</button>
             <button data-section="categories"><i class="fas fa-tags"></i> إدارة الفئات</button>
             <button data-section="settings"><i class="fas fa-cogs"></i> الإعدادات</button>
@@ -77,18 +78,6 @@
                     <div class="chart-card full-width"><h3><i class="fas fa-chart-bar" style="color:#f97316;"></i> المبيعات الشهرية</h3><div class="chart-wrap"><canvas id="chartMonthlySales"></canvas></div></div>
                     <div class="chart-card"><h3><i class="fas fa-star" style="color:#6b46c1;"></i> أكثر المنتجات مبيعاً</h3><div class="chart-wrap"><canvas id="chartTopProducts"></canvas></div></div>
                     <div class="chart-card"><h3><i class="fas fa-tags" style="color:#0987a0;"></i> أكثر الفئات ربحاً</h3><div class="chart-wrap"><canvas id="chartTopCategories"></canvas></div></div>
-                </div>
-                <div class="table-container">
-                    <div class="table-header">
-                        <h3>ملخص الأصناف المضافة شهرياً</h3>
-                        <span id="addedItemsSummaryMonthLabel" style="color:var(--text3);font-size:0.85rem;"></span>
-                    </div>
-                    <div class="table-scroll">
-                        <table>
-                            <thead><tr><th>الشهر</th><th>عدد الأصناف</th><th>إجمالي القطع</th><th>سعر الشراء الإجمالي</th><th>سعر البيع الإجمالي</th></tr></thead>
-                            <tbody id="monthlyAddedItemsSummaryBody"></tbody>
-                        </table>
-                    </div>
                 </div>
             </div>
 
@@ -237,6 +226,45 @@
             <div class="section-panel" id="section-insights">
                 <div class="stats-grid" id="insightsGrid"></div>
                 <div id="insightsList"></div>
+            </div>
+
+            <div class="section-panel" id="section-aiAssistant">
+                <div class="ai-assistant-shell">
+                    <div class="ai-assistant-card">
+                        <div class="ai-assistant-header">
+                            <div>
+                                <h2><i class="fas fa-robot"></i> مساعد الذكاء الاصطناعي</h2>
+                                <p>استخدم البيانات الحقيقية من Firestore لتحليل المخزون والمبيعات والأرباح والديون.</p>
+                            </div>
+                            <div class="ai-badge">Gemini • Live</div>
+                        </div>
+
+                        <div class="ai-config-box">
+                            <label for="geminiApiKeyInput">مفتاح Gemini API</label>
+                            <div class="ai-config-row">
+                                <input type="password" id="geminiApiKeyInput" placeholder="أدخل مفتاح API هنا">
+                                <button type="button" id="saveGeminiKeyBtn">حفظ</button>
+                            </div>
+                            <p class="ai-config-hint">يتم حفظ المفتاح محليًا داخل المتصفح لتسهيل التعديل لاحقًا.</p>
+                        </div>
+
+                        <div class="ai-suggestion-row">
+                            <button type="button" class="ai-suggest-chip" data-prompt="ما المنتجات التي تحتاج إعادة طلب؟">ما المنتجات التي تحتاج إعادة طلب؟</button>
+                            <button type="button" class="ai-suggest-chip" data-prompt="ما أكثر المنتجات ربحًا هذا الشهر؟">ما أكثر المنتجات ربحًا هذا الشهر؟</button>
+                            <button type="button" class="ai-suggest-chip" data-prompt="هل يوجد منتجات مخزونها غير منطقي؟">هل يوجد منتجات مخزونها غير منطقي؟</button>
+                            <button type="button" class="ai-suggest-chip" data-prompt="اعطني تقريرًا عن حالة المخزون.">اعطني تقريرًا عن حالة المخزون.</button>
+                        </div>
+
+                        <div class="ai-chat-area" id="aiChatMessages"></div>
+
+                        <form id="aiChatForm" class="ai-chat-form">
+                            <input type="text" id="aiChatInput" placeholder="اكتب سؤالًا مثل: ما العملاء الذين لديهم ديون متأخرة؟">
+                            <button type="submit"><i class="fas fa-paper-plane"></i> إرسال</button>
+                        </form>
+
+                        <div class="ai-assistant-status" id="aiAssistantStatus">جاهز للبدء</div>
+                    </div>
+                </div>
             </div>
 
             <div class="section-panel" id="section-expenses">
@@ -541,11 +569,15 @@
     <!-- Foundation modules - must be loaded first -->
     <script src="js/firebase-config.js"></script>
     <script src="js/appState.js"></script>
+    <script src="js/analyticsHelpers.js"></script>
     <script src="js/validation.js"></script>
     <script src="js/errorHandler.js"></script>
     <script src="js/permissions.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/backup.js"></script>
+    <script src="js/ai-config.js"></script>
+    <script src="js/aiService.js"></script>
+    <script src="js/aiChat.js"></script>
     
     <!-- Main application -->
     <script src="js/pricingHelpers.js?v=20260705"></script>
