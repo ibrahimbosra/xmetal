@@ -288,6 +288,7 @@ let currentInventorySort = (window.appState && appState.getState && appState.get
 let hasFetchedSales = false;
 let comparisonManualRows = null;
 window._cachedStats = { allTimeProfit: 0 };
+window.dashboardLazyState = window.dashboardLazyState || { totalProfitLoaded: false, totalProfitData: null, loading: false };
 window._targetAlertShown = false;
 const CACHE_TTL = 3600000;
 const chartColors = ['#2b6cb0', '#27ae60', '#f97316', '#e55353', '#6b46c1', '#0987a0', '#d69e2e', '#3182ce',
@@ -1827,7 +1828,7 @@ function attachRealtimeListeners() {
                 }
             });
             if (changed && (currentSection === 'dashboard' || currentSection === 'insights' ||
-                    currentSection === 'profitAnalysis')) { renderCurrentSection(); }
+                    currentSection === 'profitAnalysis' || currentSection === 'aiAssistant')) { renderCurrentSection(); }
             checkSalesTarget();
             document.getElementById('lastUpdatedLabel').textContent = 'آخر تحديث: ' + fmtDateTime(Date
                 .now());
@@ -1843,7 +1844,7 @@ function attachRealtimeListeners() {
                 setCachedData('items', allItems);
                 // refresh UI sections that depend on items
                 if (document.getElementById('itemsList')) renderInventory();
-                if (currentSection === 'dashboard' || currentSection === 'profitAnalysis' || currentSection === 'insights') renderCurrentSection();
+                if (currentSection === 'dashboard' || currentSection === 'profitAnalysis' || currentSection === 'insights' || currentSection === 'aiAssistant') renderCurrentSection();
                 // update any open modals that reference item quantities
                 refreshOpenModals();
                 document.getElementById('lastUpdatedLabel').textContent = 'آخر تحديث: ' + fmtDateTime(Date.now());
@@ -1866,7 +1867,7 @@ function attachRealtimeListeners() {
                     updateProductPriceDisplay();
                     updateSellPriceDisplay();
                     updateEditSalePriceDisplay();
-                    if (currentSection === 'inventory' || currentSection === 'dashboard') renderCurrentSection();
+                    if (currentSection === 'inventory' || currentSection === 'dashboard' || currentSection === 'aiAssistant') renderCurrentSection();
                 }
             } catch (e) { console.warn('currency onSnapshot handler error', e); }
         });
@@ -1879,7 +1880,7 @@ function attachRealtimeListeners() {
             try {
                 if (doc.exists) {
                     window._cachedStats.allTimeProfit = doc.data().allTimeProfit || 0;
-                    if (currentSection === 'dashboard' || currentSection === 'profitAnalysis') renderCurrentSection();
+                    if (currentSection === 'dashboard' || currentSection === 'profitAnalysis' || currentSection === 'aiAssistant') renderCurrentSection();
                 }
             } catch (e) { console.warn('stats onSnapshot handler error', e); }
         });
@@ -2163,7 +2164,7 @@ function renderCurrentSection() {
     var sec = document.getElementById(secId);
     if (sec) sec.classList.add('active');
     setTimeout(async function() {
-        if (currentSection === 'profitAnalysis') await ensureFullSalesData();
+        if (currentSection === 'profitAnalysis' || currentSection === 'comparison') await ensureFullSalesData();
         switch (currentSection) {
             case 'dashboard':
                 renderDashboard();
@@ -2204,6 +2205,8 @@ function renderCurrentSection() {
             case 'settings':
                 renderStoreInfo();
                 renderCurrencySettingsForm();
+                break;
+            case 'aiAssistant':
                 break;
             case 'currencySettings':
                 break;
@@ -2325,74 +2328,25 @@ function getMonthlySalesData() {
             k) { return map[k].profit; }) };
 }
 
-function getItemAddedBaseQuantity(item) {
-    if (item.purchaseBatches && Array.isArray(item.purchaseBatches) && item.purchaseBatches.length) {
-        return item.purchaseBatches.reduce(function(acc, b) { return acc + (Number(b.quantity) || 0); }, 0);
+function buildDashboardTotalProfitCardData() {
+    if (window.AnalyticsHelpers && window.AnalyticsHelpers.buildLazyProfitSummary) {
+        return window.AnalyticsHelpers.buildLazyProfitSummary(allSales, allExpenses);
     }
-    return Number(item.quantity) || 0;
+    return null;
 }
 
-function getItemAddedPurchaseCost(item) {
-    if (item.purchaseBatches && Array.isArray(item.purchaseBatches) && item.purchaseBatches.length) {
-        return item.purchaseBatches.reduce(function(acc, b) {
-            return acc + ((Number(b.quantity) || 0) * (Number(b.unitCost) || 0));
-        }, 0);
+async function loadDashboardTotalProfitCard() {
+    var state = window.dashboardLazyState || (window.dashboardLazyState = { totalProfitLoaded: false, totalProfitData: null, loading: false });
+    if (state.loading) return;
+    state.loading = true;
+    try {
+        await ensureFullSalesData();
+        state.totalProfitData = buildDashboardTotalProfitCardData();
+        state.totalProfitLoaded = !!state.totalProfitData;
+    } finally {
+        state.loading = false;
+        renderDashboard();
     }
-    return (Number(item.purchasePrice) || 0) * getItemAddedBaseQuantity(item);
-}
-
-function getItemAddedSaleValue(item) {
-    return (Number(item.salePrice) || 0) * getItemAddedBaseQuantity(item);
-}
-
-function formatMonthKeyLabel(monthKey) {
-    var parts = String(monthKey).split('-');
-    if (parts.length !== 2) return monthKey;
-    var year = parts[0];
-    var month = parseInt(parts[1], 10);
-    var months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-    return (months[month - 1] || month) + ' ' + year;
-}
-
-function getMonthlyItemsAddedSummary() {
-    var map = {};
-    allItems.forEach(function(item) {
-        var ts = item.createdAt || item.updatedAt;
-        if (ts && typeof ts.toMillis === 'function') ts = ts.toMillis();
-        if (!ts) return;
-        var mk = getMonthKey(ts);
-        if (!map[mk]) map[mk] = { monthKey: mk, typeCount: 0, totalPieces: 0, totalPurchase: 0, totalSale: 0 };
-        var qty = getItemAddedBaseQuantity(item);
-        map[mk].typeCount += 1;
-        map[mk].totalPieces += qty;
-        map[mk].totalPurchase += getItemAddedPurchaseCost(item);
-        map[mk].totalSale += getItemAddedSaleValue(item);
-    });
-    var keys = Object.keys(map).sort();
-    if (keys.length > 12) keys = keys.slice(-12);
-    keys.reverse();
-    return keys.map(function(k) { return map[k]; });
-}
-
-function renderMonthlyItemAddSummary(summary) {
-    var tbody = document.getElementById('monthlyAddedItemsSummaryBody');
-    var label = document.getElementById('addedItemsSummaryMonthLabel');
-    if (!tbody) return;
-    if (!summary || !summary.length) {
-        tbody.innerHTML = '<tr><td colspan="5">لا توجد أصناف أضيفت حتى الآن.</td></tr>';
-        if (label) label.innerText = '';
-        return;
-    }
-    var currentMonthKey = getMonthKey(Date.now());
-    if (label) label.innerText = 'يعرض آخر 12 شهراً مع تمييز الشهر الحالي.';
-    tbody.innerHTML = summary.map(function(row) {
-        var currentClass = row.monthKey === currentMonthKey ? ' class="current-month-row"' : '';
-        return '<tr' + currentClass + '><td>' + formatMonthKeyLabel(row.monthKey) + '</td>' +
-            '<td>' + fmtInt(row.typeCount) + '</td>' +
-            '<td>' + fmtQty(row.totalPieces) + '</td>' +
-            '<td>' + formatMoney(row.totalPurchase) + '</td>' +
-            '<td>' + formatMoney(row.totalSale) + '</td></tr>';
-    }).join('');
 }
 
 function renderDashboard() {
@@ -2419,6 +2373,14 @@ function renderDashboard() {
     var topProduct = getTopProducts(1)[0];
     var topCategory = getTopCategories(1)[0];
     var topProfitProduct = getTopProfitProducts(1)[0];
+    var lazyTotalProfitState = window.dashboardLazyState || { totalProfitLoaded: false, totalProfitData: null, loading: false };
+    var totalProfitCardContent = '';
+    if (lazyTotalProfitState.totalProfitData) {
+        totalProfitCardContent = '<div class="stat-icon" style="background:var(--gradient-2);"><i class="fas fa-coins"></i></div><div class="stat-label">إجمالي الأرباح الكلية</div><div class="stat-value">' +
+            formatMoney(lazyTotalProfitState.totalProfitData.grossProfit) + '</div><div class="stat-sub">الصافي بعد المصاريف: ' + formatMoney(lazyTotalProfitState.totalProfitData.netProfit) + '</div><div class="stat-sub">من ' + (lazyTotalProfitState.totalProfitData.firstSaleTimestamp ? fmtDate(lazyTotalProfitState.totalProfitData.firstSaleTimestamp) : '--') + ' إلى ' + (lazyTotalProfitState.totalProfitData.lastSaleTimestamp ? fmtDate(lazyTotalProfitState.totalProfitData.lastSaleTimestamp) : '--') + '</div>';
+    } else {
+        totalProfitCardContent = '<div class="stat-icon" style="background:var(--gradient-2);"><i class="fas fa-coins"></i></div><div class="stat-label">إجمالي الأرباح الكلية</div><div class="stat-value">—</div><div class="stat-sub">سيتم عرض البيانات عند الضغط على "عرض"</div><button class="btn-sm" type="button" onclick="loadDashboardTotalProfitCard()">عرض</button>';
+    }
     document.getElementById('dashboardStats').innerHTML =
         '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-1);"><i class="fas fa-dollar-sign"></i></div><div class="stat-label">إجمالي المبيعات اليوم</div><div class="stat-value">' +
         formatMoney(todayRevenue) + '</div><div class="stat-sub">' + todayOrders + ' طلب</div></div>' +
@@ -2439,8 +2401,7 @@ function renderDashboard() {
         '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-1);"><i class="fas fa-star"></i></div><div class="stat-label">المنتج الأعلى ربحاً</div><div class="stat-value" style="font-size:1rem;">' +
         (topProfitProduct ? escHtml(topProfitProduct.name) : '--') + '</div><div class="stat-sub">' + (
             topProfitProduct ? formatMoney(topProfitProduct.totalProfit) : '--') + '</div></div>' +
-        '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-2);"><i class="fas fa-coins"></i></div><div class="stat-label">إجمالي الأرباح الكلية</div><div class="stat-value">' +
-        formatMoney(allTimeGrossProfit) + '</div><div class="stat-sub">الصافي بعد المصاريف: ' + formatMoney(allTimeNetProfit) + '</div><div class="stat-sub">منذ ' + firstSaleDate + '</div></div>' +
+        '<div class="stat-card">' + totalProfitCardContent + '</div>' +
         '<div class="stat-card"><div class="stat-icon" style="background:var(--gradient-3);"><i class="fas fa-warehouse"></i></div><div class="stat-label">رأس المال</div><div class="stat-value">' +
         formatMoney(totalCapital) + '</div><div class="stat-sub">' + availableItemCount + ' صنف</div></div>';
     var dailyData = getDailyProfitData(30);
@@ -2488,7 +2449,6 @@ function renderDashboard() {
         },
         options: { ...getArabicChartDefaults(), interaction: { mode: 'index', intersect: false } }
     });
-    renderMonthlyItemAddSummary(getMonthlyItemsAddedSummary());
     var tp = getTopProducts(8);
     createChart('chartTopProducts', {
         type: 'bar',
@@ -3899,40 +3859,29 @@ function renderProfitAnalysis() {
     });
 }
 
-function getComparisonDiffText(revenueDiff, profitDiff) {
-    function fmtDiff(name, value) {
-        if (value > 0) return name + ': <span class="profit-positive">+' + formatMoney(value) + '</span>';
-        if (value < 0) return name + ': <span class="profit-negative">-' + formatMoney(Math.abs(value)) + '</span>';
-        return name + ': <span class="comparison-diff-neutral">' + formatMoney(0) + '</span>';
+var comparisonMonthStates = {};
+var comparisonMonthStatsCache = {};
+
+function getComparisonMonthStats(monthKey) {
+    if (comparisonMonthStatsCache[monthKey]) return comparisonMonthStatsCache[monthKey];
+    var helperStats = null;
+    if (window.AnalyticsHelpers && window.AnalyticsHelpers.buildMonthStats) {
+        helperStats = window.AnalyticsHelpers.buildMonthStats(allSales, monthKey, allExpenses);
     }
-    return '<span class="comparison-diff-text">' + fmtDiff('إيرادات', revenueDiff) + ' | ' + fmtDiff('ربح', profitDiff) + '</span>';
-}
-
-function getComparisonRowDiff(current, previous) {
-    if (!previous) return '--';
-    var revenueDiff = current.revenue - previous.revenue;
-    var profitDiff = current.netProfit - previous.netProfit;
-    return getComparisonDiffText(revenueDiff, profitDiff);
-}
-
-function renderComparison() {
-    var currentDate = new Date();
-    var year = currentDate.getFullYear();
-    var currentMonthIndex = currentDate.getMonth();
-    // determine last month in the year that has any sales; if none, fall back to current month
-    var maxMonthWithOps = -1;
-    allSales.forEach(function(s) {
-        var d = new Date(s.timestamp);
-        if (d.getFullYear() === year) {
-            maxMonthWithOps = Math.max(maxMonthWithOps, d.getMonth());
-        }
-    });
-    var lastMonthIndex = maxMonthWithOps >= 0 ? maxMonthWithOps : currentMonthIndex;
-    var monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-    var months = [];
-    for (var i = lastMonthIndex; i >= 0; i--) {
-        var start = new Date(year, i, 1).getTime();
-        var end = new Date(year, i + 1, 1).getTime();
+    var stats = helperStats ? {
+        salesCount: helperStats.salesCount,
+        revenue: helperStats.revenue,
+        expenses: helperStats.expenses,
+        netProfit: helperStats.netProfit,
+        margin: helperStats.revenue !== 0 ? helperStats.netProfit / helperStats.revenue * 100 : 0,
+        hasData: helperStats.salesCount > 0 || helperStats.revenue !== 0 || helperStats.expenses !== 0 || helperStats.netProfit !== 0
+    } : null;
+    if (!stats) {
+        var parts = String(monthKey).split('-');
+        var year = parseInt(parts[0], 10);
+        var monthIndex = parseInt(parts[1], 10) - 1;
+        var start = new Date(year, monthIndex, 1).getTime();
+        var end = new Date(year, monthIndex + 1, 1).getTime();
         var monthSales = allSales.filter(function(s) { return s.timestamp >= start && s.timestamp < end; });
         var revenue = monthSales.reduce(function(acc, x) { return acc + (x.totalAmount || 0); }, 0);
         var salesCount = monthSales.length;
@@ -3940,53 +3889,93 @@ function renderComparison() {
         var profit = monthSales.reduce(function(acc, x) { return acc + (x.profit || 0); }, 0);
         var netProfit = profit - expenses;
         var profitMargin = revenue !== 0 ? netProfit / revenue * 100 : 0;
-        months.push({
-            index: i,
-            label: monthNames[i],
+        stats = {
             salesCount: salesCount,
             revenue: revenue,
             expenses: expenses,
             netProfit: netProfit,
             margin: profitMargin,
             hasData: salesCount > 0 || revenue !== 0 || expenses !== 0 || netProfit !== 0
-        });
+        };
     }
-    // Do not trim leading months — show all months from January up to lastMonthIndex.
+    comparisonMonthStatsCache[monthKey] = stats;
+    return stats;
+}
+
+function renderComparison() {
+    var currentDate = new Date();
+    var currentYear = currentDate.getFullYear();
+    var currentMonthIndex = currentDate.getMonth();
+    var monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    var firstMonthTimestamp = allSales.length ? Math.min.apply(null, allSales.map(function(s) { return s.timestamp; })) : Date.now();
+    var firstDate = new Date(firstMonthTimestamp);
+    var firstYear = firstDate.getFullYear();
+    var firstMonthIndex = firstDate.getMonth();
+    var months = [];
+
+    var cursorYear = currentYear;
+    var cursorMonth = currentMonthIndex;
+    while (true) {
+        if (cursorYear < firstYear || (cursorYear === firstYear && cursorMonth < firstMonthIndex)) break;
+        var monthKey = cursorYear + '-' + (cursorMonth + 1);
+        var isCurrentMonth = cursorYear === currentYear && cursorMonth === currentMonthIndex;
+        var isExpanded = comparisonMonthStates[monthKey];
+        if (typeof isExpanded !== 'boolean') isExpanded = isCurrentMonth;
+        months.push({
+            key: monthKey,
+            year: cursorYear,
+            monthIndex: cursorMonth,
+            label: monthNames[cursorMonth] + ' ' + cursorYear,
+            expanded: isExpanded,
+            isCurrentMonth: isCurrentMonth
+        });
+        cursorMonth -= 1;
+        if (cursorMonth < 0) {
+            cursorMonth = 11;
+            cursorYear -= 1;
+        }
+    }
+
     var rows = '';
     months.forEach(function(month, idx) {
-        var rowClass = month.index === currentMonthIndex ? ' class="comparison-last-month"' : '';
-        // previous month chronologically is the next item in the array (since array is current->older)
-        var prev = (idx + 1) < months.length ? months[idx + 1] : null;
-        var diffText = '--';
-        if (prev) {
-            // treat missing data in prev as zero values — compute diffs regardless of prev.hasData
-            var prevObj = { revenue: prev.revenue || 0, netProfit: prev.netProfit || 0 };
-            diffText = getComparisonRowDiff({ revenue: month.revenue, netProfit: month.netProfit }, prevObj);
-        }
-        rows += '<tr' + rowClass + '>' +
-            '<td>' + month.label + '</td>' +
-            '<td>' + month.salesCount + '</td>' +
-            '<td>' + formatMoney(month.revenue) + '</td>' +
-            '<td>' + formatMoney(month.expenses) + '</td>' +
-            '<td>' + formatMoney(month.netProfit) + '</td>' +
-            '<td>' + fmt(month.margin) + '%</td>' +
-            '<td style="white-space:normal;text-align:left;">' + diffText + '</td>' +
+        var monthStats = month.expanded || month.isCurrentMonth ? getComparisonMonthStats(month.key) : null;
+        var rowClass = month.isCurrentMonth ? ' class="comparison-last-month"' : '';
+        var displayValue = month.expanded || month.isCurrentMonth ? (monthStats ? monthStats.salesCount : '—') : '—';
+        var displayRevenue = month.expanded || month.isCurrentMonth ? (monthStats ? formatMoney(monthStats.revenue) : '—') : '—';
+        var displayExpenses = month.expanded || month.isCurrentMonth ? (monthStats ? formatMoney(monthStats.expenses) : '—') : '—';
+        var displayProfit = month.expanded || month.isCurrentMonth ? (monthStats ? formatMoney(monthStats.netProfit) : '—') : '—';
+        var displayMargin = month.expanded || month.isCurrentMonth ? (monthStats ? fmt(monthStats.margin) + '%' : '—') : '—';
+        rows += '<tr' + rowClass + ' data-month-key="' + month.key + '">' +
+            '<td><button type="button" class="btn-sm comparison-month-toggle" data-month-key="' + month.key + '">' + ((month.expanded || month.isCurrentMonth) ? 'إخفاء' : 'عرض') + '</button> ' + escHtml(month.label) + '</td>' +
+            '<td>' + displayValue + '</td>' +
+            '<td>' + displayRevenue + '</td>' +
+            '<td>' + displayExpenses + '</td>' +
+            '<td>' + displayProfit + '</td>' +
+            '<td>' + displayMargin + '</td>' +
             '</tr>';
     });
     if (comparisonManualRows) {
         var firstDiff = '--';
         var secondDiff = getComparisonDiffText(comparisonManualRows.second.revenue - comparisonManualRows.first.revenue,
             comparisonManualRows.second.netProfit - comparisonManualRows.first.netProfit);
-        rows += '<tr class="comparison-manual-separator"><td colspan="7">المقارنة اليدوية</td></tr>';
-        rows += '<tr class="comparison-manual-row"><td>الفترة الأولى</td><td>' + comparisonManualRows.first.count + '</td><td>' + formatMoney(comparisonManualRows.first.revenue) + '</td><td>' + formatMoney(comparisonManualRows.first.expenses) + '</td><td>' + formatMoney(comparisonManualRows.first.netProfit) + '</td><td>' + fmt(comparisonManualRows.first.margin) + '%</td><td style="white-space:normal;text-align:left;">' + firstDiff + '</td></tr>';
-        rows += '<tr class="comparison-manual-row"><td>الفترة الثانية</td><td>' + comparisonManualRows.second.count + '</td><td>' + formatMoney(comparisonManualRows.second.revenue) + '</td><td>' + formatMoney(comparisonManualRows.second.expenses) + '</td><td>' + formatMoney(comparisonManualRows.second.netProfit) + '</td><td>' + fmt(comparisonManualRows.second.margin) + '%</td><td style="white-space:normal;text-align:left;">' + secondDiff + '</td></tr>';
+        rows += '<tr class="comparison-manual-separator"><td colspan="6">المقارنة اليدوية</td></tr>';
+        rows += '<tr class="comparison-manual-row"><td>الفترة الأولى</td><td>' + comparisonManualRows.first.count + '</td><td>' + formatMoney(comparisonManualRows.first.revenue) + '</td><td>' + formatMoney(comparisonManualRows.first.expenses) + '</td><td>' + formatMoney(comparisonManualRows.first.netProfit) + '</td><td>' + fmt(comparisonManualRows.first.margin) + '%</td></tr>';
+        rows += '<tr class="comparison-manual-row"><td>الفترة الثانية</td><td>' + comparisonManualRows.second.count + '</td><td>' + formatMoney(comparisonManualRows.second.revenue) + '</td><td>' + formatMoney(comparisonManualRows.second.expenses) + '</td><td>' + formatMoney(comparisonManualRows.second.netProfit) + '</td><td>' + fmt(comparisonManualRows.second.margin) + '%</td></tr>';
     }
     document.getElementById('comparisonStats').innerHTML =
-        '<div class="table-container"><div class="table-header"><h3>مقارنة من بداية السنة حتى الشهر الحالي</h3></div>' +
+        '<div class="table-container"><div class="table-header"><h3>مقارنة من بداية المشروع حتى الشهر الحالي</h3></div>' +
         '<div class="table-scroll"><table>' +
-        '<thead><tr><th>الشهر</th><th>عدد المبيعات</th><th>قيمة المبيعات</th><th>المصاريف</th><th>صافي الربح</th><th>نسبة الربح</th><th>الفرق عن الشهر السابق</th></tr></thead>' +
+        '<thead><tr><th>الشهر</th><th>عدد المبيعات</th><th>قيمة المبيعات</th><th>المصاريف</th><th>صافي الربح</th><th>نسبة الربح</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div></div>';
     document.getElementById('comparisonChartCard').style.display = 'none';
+
+    document.querySelectorAll('.comparison-month-toggle').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var monthKey = this.getAttribute('data-month-key');
+            comparisonMonthStates[monthKey] = !comparisonMonthStates[monthKey];
+            renderComparison();
+        });
+    });
 }
 document.getElementById('compareBtn').addEventListener('click', function() {
     var s1 = parseDateString(document.getElementById('compStart1Val').value, false);
