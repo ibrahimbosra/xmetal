@@ -1,9 +1,16 @@
-const CACHE_NAME = 'xmetal-mobile-sales-v1';
+const CACHE_NAME = 'xmetal-mobile-sales-v3';
 const APP_SHELL = [
     './mobile-sales.html',
+    './manifest.json',
     './css/mobile-sales.css',
     './js/mobile-sales.js',
-    './js/firebase-config.js'
+    './js/firebase-config.js',
+    './fonts/Cairo-Regular.woff2',
+    './icons/icon-192.svg',
+    './icons/icon-512.svg',
+    'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js',
+    'https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js',
+    'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js'
 ];
 
 self.addEventListener('install', event => {
@@ -16,7 +23,7 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
     const request = event.request;
-    if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+    if (request.method !== 'GET') return;
     event.respondWith(caches.match(request).then(cached => {
         const network = fetch(request).then(response => {
             if (response && response.ok) {

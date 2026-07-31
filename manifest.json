@@ -1,0 +1,27 @@
+{
+  "name": "X METAL - نقطة البيع",
+  "short_name": "نقطة البيع",
+  "description": "واجهة بيع سريعة ومخصصة للهواتف",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./mobile-sales.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
