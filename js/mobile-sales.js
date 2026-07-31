@@ -18,8 +18,8 @@
     var number = function (value) { var n = Number(value); return Number.isFinite(n) ? n : null; };
     var secondary = function (primary) { return (Number(primary) || 0) * (Number(currency.exchangeRate) || 1); };
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
-    var money = function (value) { return new Intl.NumberFormat('ar-SA', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
-    var date = function (timestamp) { return new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp || Date.now())); };
+    var money = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
+    var date = function (timestamp) { return new Intl.DateTimeFormat('ar-SA-u-nu-latn', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp || Date.now())); };
     var showError = function (id, message) { $(id).textContent = message || ''; };
 
     function notify(message) {
