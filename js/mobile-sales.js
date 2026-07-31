@@ -335,7 +335,22 @@
     document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) { backdrop.addEventListener('click', function (event) { if (event.target === backdrop) closeModal(backdrop.id); }); });
 
     function hideSplash() { setTimeout(function () { $('splashScreen').classList.add('ready'); }, 180); }
-    auth.onAuthStateChanged(function (user) { if (user) { $('loginScreen').hidden = true; $('appShell').hidden = false; loadData(); } else { $('loginScreen').hidden = false; $('appShell').hidden = true; } hideSplash(); });
+    async function applyAuthState(user) {
+        if (user) {
+            $('loginScreen').hidden = true;
+            $('appShell').hidden = false;
+            await loadData();
+        } else {
+            $('loginScreen').hidden = false;
+            $('appShell').hidden = true;
+        }
+        hideSplash();
+    }
+    Promise.resolve(window.firebaseAuthPersistenceReady).then(function () {
+        auth.onAuthStateChanged(applyAuthState);
+    }).catch(function () {
+        auth.onAuthStateChanged(applyAuthState);
+    });
 
     window.addEventListener('beforeinstallprompt', function (event) {
         event.preventDefault(); installPrompt = event; $('installButton').style.display = 'block';

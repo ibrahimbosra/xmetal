@@ -14,6 +14,7 @@ var firebaseConfig = {
 // Initialize Firebase using compat SDK loaded from index.html
 var firebaseAuthInstance = null;
 var firebaseDbInstance = null;
+var firebaseAuthPersistenceReady = Promise.resolve();
 
 try {
     // `firebase` global should be provided by the compat SDK script in index.html
@@ -22,7 +23,7 @@ try {
         firebaseAuthInstance = window.firebase.auth();
         firebaseDbInstance = window.firebase.firestore();
         if (firebaseAuthInstance && firebaseAuthInstance.setPersistence && window.firebase.auth.Auth.Persistence.LOCAL) {
-            firebaseAuthInstance.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(function() {
+            firebaseAuthPersistenceReady = firebaseAuthInstance.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(function() {
                 console.warn('Auth persistence not available');
             });
         }
