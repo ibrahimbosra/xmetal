@@ -12,6 +12,11 @@
     var editingSale = null;
     var toastTimer = null;
     var inventorySort = localStorage.getItem('xmetalInventorySort') || 'alphabetical';
+    var dataLoaded = false;
+    var listenersStarted = false;
+    var lastSyncAt = 0;
+    var productElements = new Map();
+    var CACHE_KEY = 'xmetalMobileSalesCacheV1';
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -25,6 +30,26 @@
     function notify(message) {
         var el = $('toast'); el.textContent = message; el.classList.add('show');
         clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
+    }
+
+    function saveCache() {
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ items: items, sales: sales, currency: currency, scrollY: window.scrollY, savedAt: Date.now() }));
+        } catch (error) { /* Cache is an optimization; the live listener remains authoritative. */ }
+    }
+
+    function restoreCache() {
+        try {
+            var cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+            if (!cached) return false;
+            if (Array.isArray(cached.items)) items = cached.items;
+            if (Array.isArray(cached.sales)) sales = cached.sales;
+            if (cached.currency) currency = Object.assign(currency, cached.currency);
+            var savedScroll = Number(localStorage.getItem(CACHE_KEY + ':scrollY'));
+            if (!Number.isFinite(savedScroll)) savedScroll = cached.scrollY;
+            if (Number.isFinite(savedScroll)) setTimeout(function () { window.scrollTo(0, savedScroll); }, 0);
+            return items.length > 0 || sales.length > 0;
+        } catch (error) { return false; }
     }
 
     function openModal(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
@@ -65,16 +90,24 @@
         var visible = filterAndSortProducts($('productSearch').value);
         $('productCount').textContent = visible.length + ' منتج';
         $('productsEmpty').hidden = visible.length !== 0;
-        $('productsGrid').innerHTML = visible.map(function (item) {
-            var stock = number(item.quantity) || 0;
-            return '<article class="product-card">' +
+        var visibleIds = new Set(visible.map(function (item) { return item.id; }));
+        productElements.forEach(function (element, id) { if (!visibleIds.has(id)) element.remove(); });
+        visible.forEach(function (item) {
+            var stock = number(item.quantity) || 0, signature = JSON.stringify([item.name, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate]);
+            var element = productElements.get(item.id);
+            if (!element) { element = document.createElement('article'); element.className = 'product-card'; element.dataset.productId = item.id; productElements.set(item.id, element); }
+            if (element.dataset.signature !== signature) {
+                element.dataset.signature = signature;
+                element.innerHTML =
                 '<h2 class="product-name">' + esc(item.name || 'منتج') + '</h2>' +
                 '<p class="stock">المتوفر: <strong>' + money(stock) + '</strong></p>' +
                 '<div class="prices">' +
                 '<div class="price-line base-price"><span>السعر الأساسي</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
                 '<div class="price-line mechanic-price"><span>للميـكانيكي</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
-                '</div><button class="sell-button" type="button" data-sell-item="' + esc(item.id) + '" ' + (stock <= 0 ? 'disabled' : '') + '>بيع</button></article>';
-        }).join('');
+                '</div><button class="sell-button" type="button" data-sell-item="' + esc(item.id) + '" ' + (stock <= 0 ? 'disabled' : '') + '>بيع</button>';
+            }
+            $('productsGrid').appendChild(element);
+        });
     }
 
     function resetSaleForm() {
@@ -196,7 +229,7 @@
                 await updateStats(sale.profit);
                 await logMobileActivity('sell', sale);
                 selectedItem.quantity = stockResult.quantity; selectedItem.purchaseBatches = stockResult.purchaseBatches || selectedItem.purchaseBatches;
-                sales.push(sale); notify('تم تسجيل البيع بنجاح');
+                sales.push(sale); saveCache(); notify('تم تسجيل البيع بنجاح');
             } else {
                 var diff = qty - oldQty, allocations = editingSale.purchaseBatchAllocations ? JSON.parse(JSON.stringify(editingSale.purchaseBatchAllocations)) : [];
                 var extraAllocations = null;
@@ -226,7 +259,7 @@
                 var updated = Object.assign({}, editingSale, { quantity: qty, unitPrice: newPrice, totalAmount: newPrice * qty, profit: newProfit, saleCurrency: 'secondary', purchaseBatchAllocations: allocations, updatedAt: Date.now(), source: SOURCE });
                 await db.collection('sales').doc(editingSale.saleId).set(updated);
                 await updateStats(profitDiff); await logMobileActivity('update', updated);
-                sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); notify('تم تعديل البيع');
+                sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم تعديل البيع');
             }
             closeModal('saleModal'); renderProducts(); renderHistory();
         } catch (error) { showError('saleError', error.message || 'تعذر حفظ العملية'); }
@@ -244,24 +277,55 @@
         try {
             var result = sale.purchaseBatchAllocations && sale.purchaseBatchAllocations.length ? await restoreBatches(item.id, sale.purchaseBatchAllocations) : await updateQuantity(item.id, sale.quantity);
             await db.collection('sales').doc(saleId).delete(); await updateStats(-(Number(sale.profit) || 0)); await logMobileActivity('cancel', sale);
-            item.quantity = result.quantity; item.purchaseBatches = result.purchaseBatches || item.purchaseBatches; sales = sales.filter(function (entry) { return entry.saleId !== saleId; });
+            item.quantity = result.quantity; item.purchaseBatches = result.purchaseBatches || item.purchaseBatches; sales = sales.filter(function (entry) { return entry.saleId !== saleId; }); saveCache();
             renderProducts(); renderHistory(); notify('تم إلغاء البيع وإعادة الكمية للمخزون');
         } catch (error) { notify(error.message || 'تعذر إلغاء البيع'); }
     }
 
     async function loadData() {
+        if (dataLoaded) return;
+        dataLoaded = true;
+        var hasCache = restoreCache();
+        if (hasCache) { renderProducts(); renderHistory(); }
         try {
-            var currencyDoc = await db.collection('currencySettings').doc('settings').get(); if (currencyDoc.exists) currency = Object.assign(currency, currencyDoc.data());
-            var itemSnap = await db.collection('items').get(); items = itemSnap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
-            var salesSnap = await db.collection('sales').where('source', '==', SOURCE).get(); sales = salesSnap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
-            renderProducts(); renderHistory();
-            db.collection('items').onSnapshot(function (snap) { items = snap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); }); renderProducts(); });
-            db.collection('currencySettings').doc('settings').onSnapshot(function (doc) { if (doc.exists) { currency = Object.assign(currency, doc.data()); renderProducts(); renderHistory(); } });
+            if (!hasCache) {
+                var currencyDoc = await db.collection('currencySettings').doc('settings').get(); if (currencyDoc.exists) currency = Object.assign(currency, currencyDoc.data());
+                var itemSnap = await db.collection('items').get(); items = itemSnap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+                var salesSnap = await db.collection('sales').where('source', '==', SOURCE).get(); sales = salesSnap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
+                renderProducts(); renderHistory(); saveCache();
+            }
+            startLiveListeners();
         } catch (error) { $('productCount').textContent = 'تعذر تحميل المنتجات'; notify('تعذر الاتصال بالنظام'); console.error(error); }
+    }
+
+    function startLiveListeners() {
+        if (listenersStarted) return;
+        listenersStarted = true;
+        db.collection('items').onSnapshot(function (snap) {
+            var nextItems = snap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            var changed = nextItems.length !== items.length || nextItems.some(function (next) {
+                var previous = items.find(function (item) { return item.id === next.id; });
+                return !previous || JSON.stringify(previous) !== JSON.stringify(next);
+            });
+            if (changed) { items = nextItems; renderProducts(); saveCache(); }
+            lastSyncAt = Date.now();
+        });
+        db.collection('sales').where('source', '==', SOURCE).onSnapshot(function (snap) {
+            var nextSales = snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
+            if (JSON.stringify(nextSales) !== JSON.stringify(sales)) { sales = nextSales; renderHistory(); saveCache(); }
+            lastSyncAt = Date.now();
+        });
+        db.collection('currencySettings').doc('settings').onSnapshot(function (doc) {
+            if (doc.exists) { var nextCurrency = Object.assign({}, currency, doc.data()); if (JSON.stringify(nextCurrency) !== JSON.stringify(currency)) { currency = nextCurrency; renderProducts(); renderHistory(); saveCache(); } }
+            lastSyncAt = Date.now();
+        });
     }
 
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
     $('productSearch').addEventListener('input', renderProducts);
+    window.addEventListener('scroll', function () {
+        try { localStorage.setItem(CACHE_KEY + ':scrollY', String(window.scrollY)); } catch (error) {}
+    }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
     $('productsGrid').addEventListener('click', function (event) { var button = event.target.closest('[data-sell-item]'); if (button) { var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; }); if (item) openNewSale(item); } });
     $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); });
@@ -270,4 +334,9 @@
     document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) { backdrop.addEventListener('click', function (event) { if (event.target === backdrop) closeModal(backdrop.id); }); });
 
     auth.onAuthStateChanged(function (user) { if (user) { $('loginScreen').hidden = true; $('appShell').hidden = false; loadData(); } else { $('loginScreen').hidden = false; $('appShell').hidden = true; } });
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && Date.now() - lastSyncAt > 5 * 60 * 1000 && dataLoaded) startLiveListeners();
+    });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('mobile-sales-sw.js').catch(function () {});
 }());
