@@ -1,11 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+@font-face { font-family: CairoLocal; src: url('../fonts/Cairo-Regular.woff2') format('woff2'); font-weight: 400 900; font-display: swap; }
 
 :root { color-scheme: light; --bg: #f4f7fb; --surface: #fff; --text: #152238; --muted: #718096; --line: #e5eaf1; --green: #159447; --green-bg: #eaf8ef; --blue: #2475d2; --blue-bg: #edf5ff; --danger: #d83a4b; --shadow: 0 8px 24px rgba(22, 42, 70, .08); }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: Cairo, Arial, sans-serif; }
+body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: CairoLocal, Cairo, Arial, sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
+.splash-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; gap: 8px; background: #0f172a; color: #fff; text-align: center; transition: opacity .25s ease, visibility .25s ease; }
+.splash-screen.ready { opacity: 0; visibility: hidden; pointer-events: none; }
+.splash-mark { width: 72px; height: 72px; margin: 0 auto 8px; display: grid; place-items: center; border: 2px solid #7dd3fc; border-radius: 22px; color: #7dd3fc; font-size: 1.35rem; font-weight: 800; letter-spacing: 2px; }
+.splash-screen strong { font-size: 1.2rem; } .splash-screen span { color: #a9b7ca; font-size: .78rem; }
 .login-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #e8f1ff, var(--bg) 48%); }
 .login-card { width: min(100%, 390px); padding: 34px 24px 28px; border-radius: 24px; background: var(--surface); box-shadow: var(--shadow); text-align: center; }
 .brand-mark { width: 58px; height: 58px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 18px; background: #14233a; color: #fff; font-weight: 800; letter-spacing: 1px; }
@@ -23,5 +27,6 @@ input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-rad
 .empty-state { padding: 54px 12px; color: var(--muted); text-align: center; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; align-items: end; background: rgba(15, 23, 42, .48); padding: 12px; } .modal { position: relative; width: min(100%, 520px); max-height: 92dvh; margin: auto; overflow: auto; padding: 25px 18px 18px; border-radius: 22px; background: var(--surface); box-shadow: 0 20px 55px rgba(0,0,0,.2); } .modal h2 { margin: 2px 0 3px; font-size: 1.35rem; } .modal-product { margin-bottom: 18px; color: var(--muted); font-weight: 700; } .close-button { position: absolute; top: 10px; left: 12px; width: 38px; height: 38px; border: 0; border-radius: 50%; background: #f1f4f8; color: var(--muted); font-size: 1.5rem; line-height: 1; } .history-modal { height: min(92dvh, 720px); } .sales-history { display: grid; gap: 10px; margin-top: 17px; } .sale-record { padding: 14px; border: 1px solid var(--line); border-radius: 15px; background: #fbfcfe; } .sale-record h3 { margin: 0 0 6px; font-size: .94rem; } .sale-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .76rem; } .sale-total { margin: 8px 0 0; color: var(--blue); font-weight: 800; } .record-actions { display: flex; gap: 8px; margin-top: 12px; } .record-actions button { flex: 1; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--blue); font-size: .78rem; font-weight: 800; } .record-actions .cancel-sale { color: var(--danger); }
 .toast { position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); left: 14px; z-index: 20; transform: translateY(130%); padding: 13px 15px; border-radius: 13px; background: #172b49; color: #fff; text-align: center; font-size: .84rem; transition: transform .2s ease; } .toast.show { transform: translateY(0); }
+.install-button { position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 15; display: none; min-height: 42px; padding: 0 15px; border: 0; border-radius: 12px; background: #159447; color: #fff; font-size: .78rem; font-weight: 800; box-shadow: 0 6px 18px rgba(21,148,71,.25); }
 @media (min-width: 560px) { .app-shell { padding-inline: 22px; } .products-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 900px) { body::before { content: 'هذه الصفحة مخصصة للاستخدام على الهواتف المحمولة'; display: block; padding: 9px; background: #172b49; color: #fff; text-align: center; font-size: .8rem; } }
