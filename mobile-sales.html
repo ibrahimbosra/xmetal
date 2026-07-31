@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <title>X METAL - نقطة البيع</title>
+    <link rel="stylesheet" href="css/mobile-sales.css">
+</head>
+<body>
+    <div class="login-screen" id="loginScreen">
+        <div class="login-card">
+            <div class="brand-mark">XM</div>
+            <h1>نقطة البيع</h1>
+            <p>سجّل الدخول للبدء</p>
+            <form id="loginForm" autocomplete="on">
+                <label for="email">البريد الإلكتروني</label>
+                <input id="email" type="email" autocomplete="username" required>
+                <label for="password">كلمة المرور</label>
+                <input id="password" type="password" autocomplete="current-password" required>
+                <button class="primary-button" type="submit">دخول</button>
+                <p class="form-error" id="loginError" role="alert"></p>
+            </form>
+        </div>
+    </div>
+
+    <main class="app-shell" id="appShell" hidden>
+        <header class="topbar">
+            <div>
+                <span class="eyebrow">X METAL</span>
+                <h1>نقطة البيع</h1>
+            </div>
+            <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل">
+                <span aria-hidden="true">↶</span> السجل
+            </button>
+        </header>
+
+        <section class="toolbar" aria-label="البحث في المنتجات">
+            <label class="search-box">
+                <span aria-hidden="true">⌕</span>
+                <input id="productSearch" type="search" placeholder="ابحث عن منتج" autocomplete="off">
+            </label>
+            <p class="product-count" id="productCount">جاري تحميل المنتجات...</p>
+        </section>
+
+        <section class="products-grid" id="productsGrid" aria-live="polite"></section>
+        <div class="empty-state" id="productsEmpty" hidden>لا توجد منتجات متاحة</div>
+    </main>
+
+    <div class="modal-backdrop" id="saleModal" hidden>
+        <section class="modal" role="dialog" aria-modal="true" aria-labelledby="saleModalTitle">
+            <button class="close-button" data-close-modal="saleModal" type="button" aria-label="إغلاق">×</button>
+            <p class="eyebrow">تسجيل بيع</p>
+            <h2 id="saleModalTitle">بيع منتج</h2>
+            <p class="modal-product" id="saleProductName"></p>
+            <form id="saleForm">
+                <label for="saleQuantity">الكمية</label>
+                <input id="saleQuantity" type="number" min="0.01" step="any" required>
+                <label for="salePrice">سعر البيع للقطعة <span id="saleCurrencyLabel"></span></label>
+                <input id="salePrice" type="number" min="0" step="any" required>
+                <button class="primary-button" type="submit">تأكيد البيع</button>
+                <p class="form-error" id="saleError" role="alert"></p>
+            </form>
+        </section>
+    </div>
+
+    <div class="modal-backdrop" id="historyModal" hidden>
+        <section class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
+            <button class="close-button" data-close-modal="historyModal" type="button" aria-label="إغلاق">×</button>
+            <p class="eyebrow">عمليات هذه الصفحة فقط</p>
+            <h2 id="historyTitle">السجل</h2>
+            <div id="salesHistory" class="sales-history" aria-live="polite"></div>
+        </section>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
+    <script src="js/mobile-sales.js"></script>
+</body>
+</html>
