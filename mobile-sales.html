@@ -40,11 +40,7 @@
         <header class="topbar">
             <div>
                 <span class="eyebrow">X METAL</span>
-                <h1>نقطة البيع</h1>
             </div>
-            <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل">
-                <span aria-hidden="true">↶</span> السجل
-            </button>
         </header>
 
         <section class="toolbar" aria-label="البحث في المنتجات">
@@ -52,6 +48,7 @@
                 <span aria-hidden="true">⌕</span>
                 <input id="productSearch" type="search" placeholder="ابحث عن منتج" autocomplete="off">
             </label>
+            <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل">السجل</button>
             <p class="product-count" id="productCount">جاري تحميل المنتجات...</p>
         </section>
 
@@ -87,6 +84,7 @@
 
     <div class="toast" id="toast" role="status"></div>
     <button class="install-button" id="installButton" type="button">تثبيت التطبيق</button>
+    <button class="back-to-top" id="backToTop" type="button" aria-label="العودة إلى أعلى المنتجات">↑</button>
 
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
