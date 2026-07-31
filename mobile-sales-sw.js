@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xmetal-mobile-sales-v3';
+const CACHE_NAME = 'xmetal-mobile-sales-v4';
 const APP_SHELL = [
     './mobile-sales.html',
     './manifest.json',
@@ -8,13 +8,37 @@ const APP_SHELL = [
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',
     './icons/icon-512.svg',
-    'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js',
-    'https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js',
-    'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js'
+    './mobile-sales-sw.js'
 ];
 
+const FIREBASE_HOSTS = [
+    'firestore.googleapis.com',
+    'identitytoolkit.googleapis.com'
+];
+
+function isFirebaseRequest(url) {
+    return FIREBASE_HOSTS.includes(url.hostname) ||
+        (url.hostname.endsWith('.googleapis.com') && url.hostname.includes('firebase'));
+}
+
+function isStaticRequest(request, url) {
+    if (url.origin !== self.location.origin || isFirebaseRequest(url)) return false;
+    if (request.method !== 'GET') return false;
+    return ['document', 'script', 'style', 'image', 'font', 'manifest'].includes(request.destination) ||
+        /\.(html?|css|js|mjs|json|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|otf)$/i.test(url.pathname);
+}
+
 self.addEventListener('install', event => {
-    event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+    event.waitUntil(caches.open(CACHE_NAME).then(async cache => {
+        for (const path of APP_SHELL) {
+            try {
+                const response = await fetch(new Request(path, { cache: 'no-cache' }));
+                if (response.ok && response.type === 'basic') await cache.put(path, response);
+            } catch (error) {
+                // A missing static asset must not prevent the Service Worker from installing.
+            }
+        }
+    }).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -23,15 +47,21 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
     const request = event.request;
-    if (request.method !== 'GET') return;
-    event.respondWith(caches.match(request).then(cached => {
-        const network = fetch(request).then(response => {
-            if (response && response.ok) {
+    const url = new URL(request.url);
+    // Firebase Auth and Firestore must manage their own network and offline storage.
+    if (!isStaticRequest(request, url)) return;
+    event.respondWith((async () => {
+        const cached = await caches.match(request);
+        try {
+            const response = await fetch(request);
+            if (response && response.ok && response.type === 'basic') {
                 const copy = response.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+                const cache = await caches.open(CACHE_NAME);
+                await cache.put(request, copy);
             }
             return response;
-        }).catch(() => cached);
-        return cached || network;
-    }));
+        } catch (error) {
+            return cached || new Response('', { status: 503, statusText: 'Offline' });
+        }
+    })());
 });
