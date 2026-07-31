@@ -18,6 +18,7 @@
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobileSalesCacheV1';
     var installPrompt = null;
+    var historyVisibleCount = 25;
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -26,6 +27,9 @@
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
     var money = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
     var date = function (timestamp) { return new Intl.DateTimeFormat('ar-SA-u-nu-latn', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp || Date.now())); };
+    var dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    function dayKey(timestamp) { var d = new Date(timestamp || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+    function dayLabel(timestamp) { var d = new Date(timestamp || Date.now()); return dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); }
     var showError = function (id, message) { $(id).textContent = message || ''; };
 
     function notify(message) {
@@ -103,8 +107,8 @@
                 '<h2 class="product-name">' + esc(item.name || 'منتج') + '</h2>' +
                 '<p class="stock">المتوفر: <strong>' + money(stock) + '</strong></p>' +
                 '<div class="prices">' +
-                '<div class="price-line base-price"><span>السعر الأساسي</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
-                '<div class="price-line mechanic-price"><span>للميـكانيكي</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
+                '<div class="price-line base-price"><span>مبيع</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
+                '<div class="price-line mechanic-price"><span>جملة</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
                 '</div><button class="sell-button" type="button" data-sell-item="' + esc(item.id) + '" ' + (stock <= 0 ? 'disabled' : '') + '>بيع</button>';
             }
             $('productsGrid').appendChild(element);
@@ -140,13 +144,22 @@
 
     function renderHistory() {
         var ordered = sales.slice().sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-        $('salesHistory').innerHTML = ordered.length ? ordered.map(function (sale) {
-            return '<article class="sale-record"><h3>' + esc(sale.itemName || 'منتج') + '</h3>' +
+        var shown = ordered.slice(0, historyVisibleCount), previousDay = null, html = '';
+        shown.forEach(function (sale, index) {
+            var currentDay = dayKey(sale.timestamp);
+            if (currentDay !== previousDay) {
+                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong></div>';
+                previousDay = currentDay;
+            }
+            html += '<article class="sale-record"><div class="sale-number">عملية رقم ' + (index + 1) + '</div><h3>' + esc(sale.itemName || 'منتج') + '</h3>' +
                 '<div class="sale-meta"><span>' + esc(date(sale.timestamp)) + '</span><span>الكمية: ' + money(sale.quantity) + '</span></div>' +
                 '<p class="sale-total">سعر البيع: ' + money(secondary(sale.unitPrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</p>' +
                 '<div class="record-actions"><button type="button" data-edit-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
                 '<button type="button" class="cancel-sale" data-cancel-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
-        }).join('') : '<div class="empty-state">لا توجد عمليات بيع حتى الآن</div>';
+        });
+        if (!ordered.length) html = '<div class="empty-state">لا توجد عمليات بيع حتى الآن</div>';
+        else if (shown.length < ordered.length) html += '<button class="load-more" id="loadMoreSales" type="button">عرض المزيد</button>';
+        $('salesHistory').innerHTML = html;
     }
 
     async function updateQuantity(itemId, delta) {
@@ -330,6 +343,9 @@
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
     $('productsGrid').addEventListener('click', function (event) { var button = event.target.closest('[data-sell-item]'); if (button) { var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; }); if (item) openNewSale(item); } });
     $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); });
+    $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') { historyVisibleCount += 25; renderHistory(); } });
+    $('backToTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    window.addEventListener('scroll', function () { $('backToTop').classList.toggle('show', window.scrollY > 220); }, { passive: true });
     $('saleForm').addEventListener('submit', submitSale);
     document.querySelectorAll('[data-close-modal]').forEach(function (button) { button.addEventListener('click', function () { closeModal(button.dataset.closeModal); }); });
     document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) { backdrop.addEventListener('click', function (event) { if (event.target === backdrop) closeModal(backdrop.id); }); });
