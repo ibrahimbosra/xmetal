@@ -17,6 +17,7 @@
     var lastSyncAt = 0;
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobileSalesCacheV1';
+    var installPrompt = null;
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -333,7 +334,17 @@
     document.querySelectorAll('[data-close-modal]').forEach(function (button) { button.addEventListener('click', function () { closeModal(button.dataset.closeModal); }); });
     document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) { backdrop.addEventListener('click', function (event) { if (event.target === backdrop) closeModal(backdrop.id); }); });
 
-    auth.onAuthStateChanged(function (user) { if (user) { $('loginScreen').hidden = true; $('appShell').hidden = false; loadData(); } else { $('loginScreen').hidden = false; $('appShell').hidden = true; } });
+    function hideSplash() { setTimeout(function () { $('splashScreen').classList.add('ready'); }, 180); }
+    auth.onAuthStateChanged(function (user) { if (user) { $('loginScreen').hidden = true; $('appShell').hidden = false; loadData(); } else { $('loginScreen').hidden = false; $('appShell').hidden = true; } hideSplash(); });
+
+    window.addEventListener('beforeinstallprompt', function (event) {
+        event.preventDefault(); installPrompt = event; $('installButton').style.display = 'block';
+    });
+    $('installButton').addEventListener('click', async function () {
+        if (!installPrompt) return;
+        installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; $('installButton').style.display = 'none';
+    });
+    window.addEventListener('appinstalled', function () { $('installButton').style.display = 'none'; });
 
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden && Date.now() - lastSyncAt > 5 * 60 * 1000 && dataLoaded) startLiveListeners();

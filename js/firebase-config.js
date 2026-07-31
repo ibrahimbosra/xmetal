@@ -21,6 +21,11 @@ try {
         window.firebase.initializeApp(firebaseConfig);
         firebaseAuthInstance = window.firebase.auth();
         firebaseDbInstance = window.firebase.firestore();
+        if (firebaseAuthInstance && firebaseAuthInstance.setPersistence && window.firebase.auth.Auth.Persistence.LOCAL) {
+            firebaseAuthInstance.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(function() {
+                console.warn('Auth persistence not available');
+            });
+        }
         // try to enable persistence but ignore failures (e.g., multiple tabs or unsupported browsers)
         if (firebaseDbInstance && firebaseDbInstance.enablePersistence) {
             firebaseDbInstance.enablePersistence().catch(function() {
