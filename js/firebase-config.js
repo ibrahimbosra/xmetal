@@ -29,7 +29,7 @@ try {
         }
         // try to enable persistence but ignore failures (e.g., multiple tabs or unsupported browsers)
         if (firebaseDbInstance && firebaseDbInstance.enablePersistence) {
-            firebaseDbInstance.enablePersistence().catch(function() {
+            firebaseDbInstance.enablePersistence({ synchronizeTabs: true }).catch(function() {
                 console.warn('Firestore persistence not available');
             });
         }

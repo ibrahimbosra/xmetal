@@ -19,6 +19,7 @@
     var CACHE_KEY = 'xmetalMobileSalesCacheV1';
     var installPrompt = null;
     var historyVisibleCount = 25;
+    var unusualPriceApproved = false;
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -48,7 +49,7 @@
             var cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
             if (!cached) return false;
             if (Array.isArray(cached.items)) items = cached.items;
-            if (Array.isArray(cached.sales)) sales = cached.sales;
+            if (Array.isArray(cached.sales)) sales = uniqueSales(cached.sales);
             if (cached.currency) currency = Object.assign(currency, cached.currency);
             var savedScroll = Number(localStorage.getItem(CACHE_KEY + ':scrollY'));
             if (!Number.isFinite(savedScroll)) savedScroll = cached.scrollY;
@@ -116,8 +117,69 @@
     }
 
     function resetSaleForm() {
-        $('saleForm').reset(); $('saleError').textContent = '';
+        $('saleForm').reset(); $('saleError').textContent = ''; $('priceWarning').hidden = true; unusualPriceApproved = false;
         $('saleQuantity').value = 1;
+        updateSalePriceGuide();
+    }
+
+    function updateSalePriceGuide() {
+        var quantity = number($('saleQuantity').value) || 0, total = number($('salePrice').value) || 0;
+        var unit = quantity > 0 ? total / quantity : 0;
+        $('saleUnitPrice').value = money(unit) + ' ' + currency.secondaryCurrencySymbol;
+        $('calculatedTotal').textContent = 'الإجمالي: ' + money(total) + ' ' + currency.secondaryCurrencySymbol;
+    }
+
+    function getPriceWarning(unitPricePrimary, item) {
+        var lowReference = mechanicPrice(item), highReference = Number(item.salePrice) || 0;
+        if (unitPricePrimary < lowReference && lowReference > 0) {
+            var lowPercent = ((lowReference - unitPricePrimary) / lowReference) * 100;
+            if (lowPercent > 15) return { level: 'danger', percent: lowPercent, direction: 'أقل', type: 'mechanic', reference: lowReference };
+        }
+        if (unitPricePrimary > highReference && highReference > 0) {
+            var highPercent = ((unitPricePrimary - highReference) / highReference) * 100;
+            if (highPercent > 15) return { level: 'warning', percent: highPercent, direction: 'أعلى', type: 'sale', reference: highReference };
+        }
+        return { level: 'none', percent: 0, type: 'sale', reference: highReference };
+    }
+
+    function warningText(info) {
+        var referenceName = info.type === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي';
+        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + money(secondary(info.reference)) + ' ' + currency.secondaryCurrencySymbol;
+    }
+
+    function upsertSaleLocally(sale) {
+        if (!sale || !sale.saleId) return;
+        var index = sales.findIndex(function (entry) { return entry.saleId === sale.saleId; });
+        if (index === -1) sales.push(sale);
+        else sales[index] = Object.assign({}, sales[index], sale);
+    }
+
+    function uniqueSales(list) {
+        var byId = new Map();
+        (Array.isArray(list) ? list : []).forEach(function (sale) { if (sale && sale.saleId) byId.set(sale.saleId, sale); });
+        return Array.from(byId.values());
+    }
+
+    function sanitizeFirestoreData(value) {
+        if (Array.isArray(value)) return value.map(sanitizeFirestoreData);
+        if (value && typeof value === 'object') {
+            var cleaned = {};
+            Object.keys(value).forEach(function (key) {
+                if (value[key] !== undefined) cleaned[key] = sanitizeFirestoreData(value[key]);
+            });
+            return cleaned;
+        }
+        return value;
+    }
+
+    function showPriceWarning(info) {
+        var box = $('priceWarning');
+        box.classList.toggle('warning', info.level === 'warning'); box.classList.toggle('danger', info.level === 'danger');
+        $('priceWarningTitle').textContent = info.level === 'danger' ? '⚠ تنبيه خطر السعر' : 'ⓘ مراجعة السعر';
+        $('priceWarningText').textContent = warningText(info);
+        $('backFromWarning').hidden = false;
+        $('confirmUnusualPrice').textContent = 'متابعة البيع';
+        box.hidden = false;
     }
 
     function openNewSale(item) {
@@ -127,6 +189,7 @@
         $('salePrice').value = Number(secondary(item.salePrice).toFixed(2));
         $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'تأكيد البيع';
+        updateSalePriceGuide();
         openModal('saleModal');
     }
 
@@ -136,30 +199,42 @@
         selectedItem = item; editingSale = sale; resetSaleForm();
         $('saleModalTitle').textContent = 'تعديل البيع'; $('saleProductName').textContent = sale.itemName || item.name || 'منتج';
         $('saleQuantity').value = sale.quantity; $('saleQuantity').max = (Number(item.quantity) || 0) + (Number(sale.quantity) || 0);
-        $('salePrice').value = Number(secondary(sale.unitPrice).toFixed(2));
+        $('salePrice').value = Number(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0)).toFixed(2));
         $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'حفظ التعديل';
+        updateSalePriceGuide();
         openModal('saleModal');
     }
 
     function renderHistory() {
-        var ordered = sales.slice().sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-        var shown = ordered.slice(0, historyVisibleCount), previousDay = null, html = '';
+        try {
+        var ordered = (Array.isArray(sales) ? sales : []).slice().sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+        var shown = ordered.slice(0, historyVisibleCount), previousDay = null, currentDayTotal = 0, html = '';
         shown.forEach(function (sale, index) {
             var currentDay = dayKey(sale.timestamp);
             if (currentDay !== previousDay) {
+                if (previousDay !== null) html += '<div class="day-total">إجمالي مبيعات اليوم: ' + money(currentDayTotal) + ' ' + esc(currency.secondaryCurrencySymbol) + '</div>';
                 html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong></div>';
                 previousDay = currentDay;
+                currentDayTotal = 0;
             }
-            html += '<article class="sale-record"><div class="sale-number">عملية رقم ' + (index + 1) + '</div><h3>' + esc(sale.itemName || 'منتج') + '</h3>' +
+            currentDayTotal += secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0));
+            var warningBadge = sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? '<button type="button" class="warning-badge ' + esc(sale.priceWarningLevel) + '" data-warning-sale="' + esc(sale.saleId) + '" aria-label="عرض سبب التنبيه">!</button>' : '';
+            html += '<article class="sale-record ' + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? 'has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number">عملية رقم ' + (index + 1) + warningBadge + '</div><h3>' + esc(sale.itemName || 'منتج') + '</h3>' +
                 '<div class="sale-meta"><span>' + esc(date(sale.timestamp)) + '</span><span>الكمية: ' + money(sale.quantity) + '</span></div>' +
-                '<p class="sale-total">سعر البيع: ' + money(secondary(sale.unitPrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</p>' +
+                '<p class="sale-total">سعر القطعة: ' + money(secondary(sale.unitPrice)) + ' × الكمية: ' + money(sale.quantity) + ' = الإجمالي: ' + money(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</p>' +
                 '<div class="record-actions"><button type="button" data-edit-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
                 '<button type="button" class="cancel-sale" data-cancel-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
         });
+        if (previousDay !== null) html += '<div class="day-total">إجمالي مبيعات اليوم: ' + money(currentDayTotal) + ' ' + esc(currency.secondaryCurrencySymbol) + '</div>';
         if (!ordered.length) html = '<div class="empty-state">لا توجد عمليات بيع حتى الآن</div>';
         else if (shown.length < ordered.length) html += '<button class="load-more" id="loadMoreSales" type="button">عرض المزيد</button>';
         $('salesHistory').innerHTML = html;
+        } catch (error) {
+            console.warn('تعذر عرض سجل المبيعات:', error);
+            var historyElement = $('salesHistory');
+            if (historyElement) historyElement.innerHTML = '<div class="empty-state">تعذر عرض السجل حاليًا</div>';
+        }
     }
 
     async function updateQuantity(itemId, delta) {
@@ -226,10 +301,14 @@
 
     async function submitSale(event) {
         event.preventDefault();
-        var qty = number($('saleQuantity').value), displayedPrice = number($('salePrice').value);
-        if (!selectedItem || qty === null || qty <= 0 || displayedPrice === null || displayedPrice < 0) { showError('saleError', 'تحقق من الكمية والسعر'); return; }
+        var qty = number($('saleQuantity').value), enteredPrice = number($('salePrice').value);
+        var displayedPrice = enteredPrice === null || !qty ? null : enteredPrice / qty;
+        if (!selectedItem || qty === null || qty <= 0 || enteredPrice === null || enteredPrice < 0 || displayedPrice === null || displayedPrice < 0) { showError('saleError', 'تحقق من الكمية والسعر'); return; }
         var oldQty = editingSale ? Number(editingSale.quantity) || 0 : 0;
         if (qty > (Number(selectedItem.quantity) || 0) + oldQty) { showError('saleError', 'الكمية المتوفرة غير كافية'); return; }
+        var warning = getPriceWarning(primary(displayedPrice), selectedItem);
+        if (warning.level !== 'none' && !unusualPriceApproved) { showPriceWarning(warning); return; }
+        $('priceWarning').hidden = true;
         var button = $('saleForm').querySelector('button[type="submit"]'); button.disabled = true; showError('saleError', '');
         try {
             if (!editingSale) {
@@ -237,13 +316,13 @@
                 if (selectedItem.purchaseBatches && selectedItem.purchaseBatches.length && !allocations.length) throw new Error('الكمية المتوفرة غير كافية');
                 var stockResult = await changeStock(selectedItem, -qty, allocations);
                 var cost = Number(selectedItem.purchasePrice) || 0;
-                var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), saleCurrency: 'secondary', source: SOURCE };
+                var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), saleCurrency: 'secondary', source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference };
                 if (allocations) sale.purchaseBatchAllocations = allocations;
-                var saleRef = await db.collection('sales').add(sale); sale.saleId = saleRef.id;
+                var saleRef = await db.collection('sales').add(sanitizeFirestoreData(sale)); sale.saleId = saleRef.id;
                 await updateStats(sale.profit);
                 await logMobileActivity('sell', sale);
                 selectedItem.quantity = stockResult.quantity; selectedItem.purchaseBatches = stockResult.purchaseBatches || selectedItem.purchaseBatches;
-                sales.push(sale); saveCache(); notify('تم تسجيل البيع بنجاح');
+                upsertSaleLocally(sale); saveCache(); notify('تم تسجيل البيع بنجاح');
             } else {
                 var diff = qty - oldQty, allocations = editingSale.purchaseBatchAllocations ? JSON.parse(JSON.stringify(editingSale.purchaseBatchAllocations)) : [];
                 var extraAllocations = null;
@@ -270,8 +349,8 @@
                     }
                 }
                 var newPrice = primary(displayedPrice), newProfit = (newPrice - (Number(editingSale.purchasePriceAtTime) || 0)) * qty, profitDiff = newProfit - (Number(editingSale.profit) || 0);
-                var updated = Object.assign({}, editingSale, { quantity: qty, unitPrice: newPrice, totalAmount: newPrice * qty, profit: newProfit, saleCurrency: 'secondary', purchaseBatchAllocations: allocations, updatedAt: Date.now(), source: SOURCE });
-                await db.collection('sales').doc(editingSale.saleId).set(updated);
+                var updated = Object.assign({}, editingSale, { quantity: qty, unitPrice: newPrice, totalAmount: newPrice * qty, profit: newProfit, saleCurrency: 'secondary', purchaseBatchAllocations: allocations, updatedAt: Date.now(), source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference });
+                await db.collection('sales').doc(editingSale.saleId).set(sanitizeFirestoreData(updated));
                 await updateStats(profitDiff); await logMobileActivity('update', updated);
                 sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم تعديل البيع');
             }
@@ -284,14 +363,27 @@
     async function logMobileActivity(action, sale) { return db.collection('activityLog').add({ action: action, entity: 'sale', entityId: sale.saleId || null, message: action === 'sell' ? 'بيع من نقطة البيع' : 'تعديل بيع من نقطة البيع', itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity, timestamp: Date.now(), source: SOURCE }); }
 
     async function cancelSale(saleId) {
-        var sale = sales.find(function (entry) { return entry.saleId === saleId; });
+        var sale = sales.find(function (entry) { return entry && entry.saleId === saleId; });
         if (!sale || sale.source !== SOURCE || !window.confirm('إلغاء عملية البيع؟')) return;
-        var item = items.find(function (entry) { return entry.id === sale.itemId; });
-        if (!item) { notify('المنتج غير موجود'); return; }
+        if (!sale.itemId) { notify('معرف المنتج غير موجود في سجل البيع'); return; }
+        var item = (Array.isArray(items) ? items : []).find(function (entry) { return entry && entry.id === sale.itemId; });
+        if (!item) {
+            try {
+                var itemDoc = await db.collection('items').doc(sale.itemId).get({ source: navigator.onLine ? 'default' : 'cache' });
+                if (itemDoc.exists) item = Object.assign({ id: itemDoc.id }, itemDoc.data());
+            } catch (error) { notify('تعذر الوصول إلى المنتج المرتبط بالبيع'); return; }
+        }
+        if (!item || !item.id) { notify('المنتج المرتبط بعملية البيع غير موجود'); return; }
         try {
             var result = sale.purchaseBatchAllocations && sale.purchaseBatchAllocations.length ? await restoreBatches(item.id, sale.purchaseBatchAllocations) : await updateQuantity(item.id, sale.quantity);
+            if (result === null || result === undefined || (typeof result === 'object' && result.quantity === undefined)) { notify('تعذر استرجاع كمية المنتج المرتبط'); return; }
             await db.collection('sales').doc(saleId).delete(); await updateStats(-(Number(sale.profit) || 0)); await logMobileActivity('cancel', sale);
-            item.quantity = result.quantity; item.purchaseBatches = result.purchaseBatches || item.purchaseBatches; sales = sales.filter(function (entry) { return entry.saleId !== saleId; }); saveCache();
+            item.quantity = typeof result === 'number' ? result : result.quantity;
+            if (typeof result === 'object' && result.purchaseBatches) item.purchaseBatches = result.purchaseBatches;
+            var localItemIndex = items.findIndex(function (entry) { return entry && entry.id === item.id; });
+            if (localItemIndex >= 0) items[localItemIndex] = item;
+            else items.push(item);
+            sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; }); saveCache();
             renderProducts(); renderHistory(); notify('تم إلغاء البيع وإعادة الكمية للمخزون');
         } catch (error) { notify(error.message || 'تعذر إلغاء البيع'); }
     }
@@ -301,14 +393,20 @@
         dataLoaded = true;
         var hasCache = restoreCache();
         if (hasCache) { renderProducts(); renderHistory(); }
+        startLiveListeners();
+        if (hasCache) return;
         try {
-            if (!hasCache) {
-                var currencyDoc = await db.collection('currencySettings').doc('settings').get(); if (currencyDoc.exists) currency = Object.assign(currency, currencyDoc.data());
-                var itemSnap = await db.collection('items').get(); items = itemSnap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
-                var salesSnap = await db.collection('sales').where('source', '==', SOURCE).get(); sales = salesSnap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
+            var cacheRead = Promise.all([
+                db.collection('items').get({ source: 'cache' }),
+                db.collection('sales').where('source', '==', SOURCE).get({ source: 'cache' }),
+                db.collection('currencySettings').doc('settings').get({ source: 'cache' })
+            ]).then(function (result) {
+                items = result[0].docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+                sales = result[1].docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
+                if (result[2].exists) currency = Object.assign(currency, result[2].data());
                 renderProducts(); renderHistory(); saveCache();
-            }
-            startLiveListeners();
+            });
+            await Promise.race([cacheRead, new Promise(function (resolve) { setTimeout(resolve, 1200); })]);
         } catch (error) { $('productCount').textContent = 'تعذر تحميل المنتجات'; notify('تعذر الاتصال بالنظام'); console.error(error); }
     }
 
@@ -326,7 +424,8 @@
         });
         db.collection('sales').where('source', '==', SOURCE).onSnapshot(function (snap) {
             var nextSales = snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
-            if (JSON.stringify(nextSales) !== JSON.stringify(sales)) { sales = nextSales; renderHistory(); saveCache(); }
+            nextSales = uniqueSales(nextSales);
+            if (JSON.stringify(nextSales) !== JSON.stringify(uniqueSales(sales))) { sales = nextSales; renderHistory(); saveCache(); }
             lastSyncAt = Date.now();
         });
         db.collection('currencySettings').doc('settings').onSnapshot(function (doc) {
@@ -337,12 +436,16 @@
 
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
     $('productSearch').addEventListener('input', renderProducts);
+    $('saleQuantity').addEventListener('input', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
+    $('salePrice').addEventListener('input', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
+    $('backFromWarning').addEventListener('click', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; });
+    $('confirmUnusualPrice').addEventListener('click', function () { unusualPriceApproved = true; $('priceWarning').hidden = true; $('saleForm').requestSubmit(); });
     window.addEventListener('scroll', function () {
         try { localStorage.setItem(CACHE_KEY + ':scrollY', String(window.scrollY)); } catch (error) {}
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
     $('productsGrid').addEventListener('click', function (event) { var button = event.target.closest('[data-sell-item]'); if (button) { var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; }); if (item) openNewSale(item); } });
-    $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); });
+    $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'), warningButton = event.target.closest('[data-warning-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); if (warningButton) { var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; }); if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.'); } });
     $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') { historyVisibleCount += 25; renderHistory(); } });
     $('backToTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
     window.addEventListener('scroll', function () { $('backToTop').classList.toggle('show', window.scrollY > 220); }, { passive: true });
@@ -362,11 +465,15 @@
         }
         hideSplash();
     }
-    Promise.resolve(window.firebaseAuthPersistenceReady).then(function () {
-        auth.onAuthStateChanged(applyAuthState);
-    }).catch(function () {
-        auth.onAuthStateChanged(applyAuthState);
-    });
+    var authStateObserved = false;
+    function observeAuthState() {
+        auth.onAuthStateChanged(function (user) { authStateObserved = true; applyAuthState(user); });
+        setTimeout(function () { if (!authStateObserved) applyAuthState(auth.currentUser || null); }, 3500);
+    }
+    Promise.race([
+        Promise.resolve(window.firebaseAuthPersistenceReady),
+        new Promise(function (resolve) { setTimeout(resolve, 1200); })
+    ]).then(observeAuthState).catch(observeAuthState);
 
     window.addEventListener('beforeinstallprompt', function (event) {
         event.preventDefault(); installPrompt = event; $('installButton').style.display = 'block';
