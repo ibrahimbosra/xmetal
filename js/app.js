@@ -80,7 +80,9 @@ function getItemInventoryCapital(item) {
 }
 
 function commitItemUpdate(item) {
-    allItems = allItems.map(function(i) { return i.id === item.id ? item : i; });
+    var index = (Array.isArray(allItems) ? allItems : []).findIndex(function(i) { return i && i.id === item.id; });
+    if (index === -1) allItems = (Array.isArray(allItems) ? allItems : []).concat(item);
+    else allItems[index] = item;
     updateAllItems(allItems);
 }
 
@@ -203,9 +205,10 @@ async function restoreBatchAllocationsTransaction(itemId, allocations) {
         var doc = await tx.get(ref);
         if (!doc.exists) throw new Error('Item not found');
         var data = doc.data();
-        var batches = Array.isArray(data.purchaseBatches) ? data.purchaseBatches.slice() : [];
-        for (var a = 0; a < allocations.length; a++) {
-            var alloc = allocations[a];
+        var batches = Array.isArray(data.purchaseBatches) ? data.purchaseBatches.filter(function(batch) { return batch && typeof batch === 'object'; }).slice() : [];
+        var safeAllocations = Array.isArray(allocations) ? allocations.filter(function(alloc) { return alloc && typeof alloc === 'object'; }) : [];
+        for (var a = 0; a < safeAllocations.length; a++) {
+            var alloc = safeAllocations[a];
             var remaining = Number(alloc.quantity) || 0;
             // try to match by timestamp to restore to the same batch
             var matched = false;
@@ -228,9 +231,10 @@ async function restoreBatchAllocationsTransaction(itemId, allocations) {
 }
 
 function buildSaleObject(item, qty, price, currency, purchasePriceAtTime) {
+    if (!item || item.id === undefined || item.id === null || String(item.id).trim() === '') throw new Error('معرف المنتج غير موجود');
     var costBasis = purchasePriceAtTime != null ? purchasePriceAtTime : item.purchasePrice;
     return {
-        itemId: item.id,
+        itemId: String(item.id),
         itemName: item.name,
         quantity: qty,
         unitPrice: price,
@@ -3112,7 +3116,7 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
     e.preventDefault();
     var itemId = document.getElementById('sellForm').dataset.itemId;
     var item = allItems.find(function(i) { return i.id === itemId; });
-    if (!item) return;
+    if (!item || item.id === undefined || item.id === null || String(item.id).trim() === '') return alert('المنتج غير جاهز للبيع');
     var qty = parseInputNumber(document.getElementById('sellQuantity').value);
     if (qty === null || qty <= 0 || qty > item.quantity) return alert('كمية غير صالحة');
     var rawPrice = parseInputNumber(document.getElementById('sellPrice').value);
@@ -3702,6 +3706,25 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
     if (currentSection === 'dashboard') renderDashboard();
 });
 
+async function resolveSaleProduct(sale) {
+    var itemId = sale && sale.itemId != null ? String(sale.itemId).trim() : '';
+    if (!itemId) throw new Error('سجل البيع لا يحتوي على معرف المنتج');
+    var localItem = (Array.isArray(allItems) ? allItems : []).find(function(item) {
+        return item && item.id != null && String(item.id) === itemId;
+    });
+    if (localItem) return localItem;
+    var itemDoc;
+    try {
+        itemDoc = await db.collection('items').doc(itemId).get({ source: navigator.onLine ? 'default' : 'cache' });
+    } catch (firstError) {
+        if (!navigator.onLine) throw new Error('بيانات المنتج غير موجودة في الكاش المحلي');
+        try { itemDoc = await db.collection('items').doc(itemId).get({ source: 'cache' }); }
+        catch (secondError) { throw new Error('تعذر تحميل المنتج المرتبط بالبيع'); }
+    }
+    if (!itemDoc || !itemDoc.exists) throw new Error('المنتج المرتبط بالبيع غير موجود: ' + itemId);
+    return { id: itemDoc.id, ...itemDoc.data() };
+}
+
 window.cancelSale = async function(saleId) {
     if (!confirm('إلغاء البيع؟')) return;
     var sale = allSales.find(function(s) { return s.saleId === saleId; });
@@ -3714,24 +3737,19 @@ window.cancelSale = async function(saleId) {
             return alert('تعذر جلب سجل البيع');
         }
     }
-    var prod = allItems.find(function(i) { return i.id === sale.itemId; });
-    if (!prod) {
-        try {
-            var pd = await db.collection('items').doc(sale.itemId).get();
-            if (!pd.exists) return alert('المنتج غير موجود');
-            prod = { id: pd.id, ...pd.data() };
-        } catch (err) {
-            return alert('تعذر جلب بيانات المنتج');
-        }
-    }
+    var prod;
+    try { prod = await resolveSaleProduct(sale); }
+    catch (err) { return alert('تعذر العثور على المنتج المرتبط بالبيع: ' + (err && err.message ? err.message : 'خطأ غير معروف')); }
     // restore quantity using batch-aware transaction when possible
     try {
         if (sale.purchaseBatchAllocations && Array.isArray(sale.purchaseBatchAllocations) && sale.purchaseBatchAllocations.length) {
             var res = await restoreBatchAllocationsTransaction(prod.id, sale.purchaseBatchAllocations);
+            if (!res || res.quantity === undefined || res.quantity === null) throw new Error('تعذر الحصول على الكمية المسترجعة');
             prod.purchaseBatches = res.purchaseBatches;
             prod.quantity = res.quantity;
         } else {
             var newQty = await updateItemQuantityTransaction(prod.id, sale.quantity);
+            if (newQty === undefined || newQty === null) throw new Error('تعذر الحصول على الكمية المسترجعة');
             prod.quantity = newQty;
         }
     } catch (err) {

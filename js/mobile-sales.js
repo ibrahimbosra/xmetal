@@ -20,6 +20,7 @@
     var installPrompt = null;
     var historyVisibleCount = 25;
     var unusualPriceApproved = false;
+    var salePriceManuallyEdited = false;
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -27,10 +28,19 @@
     var secondary = function (primary) { return (Number(primary) || 0) * (Number(currency.exchangeRate) || 1); };
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
     var money = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
-    var date = function (timestamp) { return new Intl.DateTimeFormat('ar-SA-u-nu-latn', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp || Date.now())); };
+    function timestampValue(timestamp) {
+        if (timestamp && typeof timestamp.toMillis === 'function') return timestamp.toMillis();
+        if (timestamp && Number.isFinite(Number(timestamp.seconds))) return Number(timestamp.seconds) * 1000 + (Number(timestamp.nanoseconds) || 0) / 1000000;
+        if (timestamp instanceof Date) return timestamp.getTime();
+        var numeric = Number(timestamp);
+        if (Number.isFinite(numeric) && numeric > 0) return numeric;
+        var parsed = Date.parse(timestamp);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    var date = function (timestamp) { return new Intl.DateTimeFormat('ar-SA-u-nu-latn', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestampValue(timestamp) || Date.now())); };
     var dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-    function dayKey(timestamp) { var d = new Date(timestamp || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
-    function dayLabel(timestamp) { var d = new Date(timestamp || Date.now()); return dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); }
+    function dayKey(timestamp) { var d = new Date(timestampValue(timestamp) || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+    function dayLabel(timestamp) { var d = new Date(timestampValue(timestamp) || Date.now()); return dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); }
     var showError = function (id, message) { $(id).textContent = message || ''; };
 
     function notify(message) {
@@ -116,14 +126,30 @@
         });
     }
 
+    function scrollToProductsTop() {
+        var grid = $('productsGrid');
+        if (!grid) return;
+        grid.scrollTop = 0;
+        requestAnimationFrame(function () {
+            var toolbar = document.querySelector('.toolbar');
+            var toolbarHeight = toolbar ? toolbar.getBoundingClientRect().height : 0;
+            var gridTop = window.scrollY + grid.getBoundingClientRect().top;
+            window.scrollTo({ top: Math.max(0, gridTop - toolbarHeight - 8), behavior: 'smooth' });
+        });
+    }
+
     function resetSaleForm() {
-        $('saleForm').reset(); $('saleError').textContent = ''; $('priceWarning').hidden = true; unusualPriceApproved = false;
+        $('saleForm').reset(); $('saleError').textContent = ''; $('priceWarning').hidden = true; unusualPriceApproved = false; salePriceManuallyEdited = false;
         $('saleQuantity').value = 1;
         updateSalePriceGuide();
     }
 
-    function updateSalePriceGuide() {
-        var quantity = number($('saleQuantity').value) || 0, total = number($('salePrice').value) || 0;
+    function updateSalePriceGuide(forceAutomatic) {
+        var quantity = number($('saleQuantity').value) || 0;
+        if (!salePriceManuallyEdited && (forceAutomatic || !editingSale) && selectedItem && quantity > 0) {
+            $('salePrice').value = Number((secondary(selectedItem.salePrice) * quantity).toFixed(2));
+        }
+        var total = number($('salePrice').value) || 0;
         var unit = quantity > 0 ? total / quantity : 0;
         $('saleUnitPrice').value = money(unit) + ' ' + currency.secondaryCurrencySymbol;
         $('calculatedTotal').textContent = 'الإجمالي: ' + money(total) + ' ' + currency.secondaryCurrencySymbol;
@@ -186,7 +212,6 @@
         selectedItem = item; editingSale = null; resetSaleForm();
         $('saleModalTitle').textContent = 'بيع منتج'; $('saleProductName').textContent = item.name || 'منتج';
         $('saleQuantity').max = item.quantity;
-        $('salePrice').value = Number(secondary(item.salePrice).toFixed(2));
         $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'تأكيد البيع';
         updateSalePriceGuide();
@@ -200,6 +225,7 @@
         $('saleModalTitle').textContent = 'تعديل البيع'; $('saleProductName').textContent = sale.itemName || item.name || 'منتج';
         $('saleQuantity').value = sale.quantity; $('saleQuantity').max = (Number(item.quantity) || 0) + (Number(sale.quantity) || 0);
         $('salePrice').value = Number(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0)).toFixed(2));
+        salePriceManuallyEdited = true;
         $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'حفظ التعديل';
         updateSalePriceGuide();
@@ -208,7 +234,7 @@
 
     function renderHistory() {
         try {
-        var ordered = (Array.isArray(sales) ? sales : []).slice().sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+        var ordered = (Array.isArray(sales) ? sales : []).slice().sort(function (a, b) { return timestampValue(b.timestamp) - timestampValue(a.timestamp); });
         var shown = ordered.slice(0, historyVisibleCount), previousDay = null, currentDayTotal = 0, html = '';
         shown.forEach(function (sale, index) {
             var currentDay = dayKey(sale.timestamp);
@@ -220,9 +246,9 @@
             }
             currentDayTotal += secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0));
             var warningBadge = sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? '<button type="button" class="warning-badge ' + esc(sale.priceWarningLevel) + '" data-warning-sale="' + esc(sale.saleId) + '" aria-label="عرض سبب التنبيه">!</button>' : '';
-            html += '<article class="sale-record ' + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? 'has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number">عملية رقم ' + (index + 1) + warningBadge + '</div><h3>' + esc(sale.itemName || 'منتج') + '</h3>' +
+            html += '<article class="sale-record ' + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? 'has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number" aria-label="رقم العملية">' + (index + 1) + '</div><h3>' + esc(sale.itemName || 'منتج') + warningBadge + '</h3>' +
                 '<div class="sale-meta"><span>' + esc(date(sale.timestamp)) + '</span><span>الكمية: ' + money(sale.quantity) + '</span></div>' +
-                '<p class="sale-total">سعر القطعة: ' + money(secondary(sale.unitPrice)) + ' × الكمية: ' + money(sale.quantity) + ' = الإجمالي: ' + money(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</p>' +
+                '<p class="sale-total">سعر القطعة: <span class="sale-unit-value">' + money(secondary(sale.unitPrice)) + '</span> × الكمية: <span class="sale-quantity-value">' + money(sale.quantity) + '</span> = الإجمالي: <span class="sale-grand-total">' + money(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></p>' +
                 '<div class="record-actions"><button type="button" data-edit-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
                 '<button type="button" class="cancel-sale" data-cancel-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
         });
@@ -261,8 +287,8 @@
         var ref = db.collection('items').doc(itemId);
         return db.runTransaction(function (tx) { return tx.get(ref).then(function (doc) {
             if (!doc.exists) throw new Error('المنتج غير موجود');
-            var data = doc.data(), batches = Array.isArray(data.purchaseBatches) ? data.purchaseBatches.slice() : [];
-            allocations.forEach(function (allocation) {
+            var data = doc.data(), batches = Array.isArray(data.purchaseBatches) ? data.purchaseBatches.filter(function (batch) { return batch && typeof batch === 'object'; }).slice() : [];
+            (Array.isArray(allocations) ? allocations : []).filter(function (allocation) { return allocation && typeof allocation === 'object'; }).forEach(function (allocation) {
                 var left = Number(allocation.quantity) || 0;
                 batches.forEach(function (batch) {
                     if (left > 0 && allocation.timestamp != null && batch.timestamp === allocation.timestamp) {
@@ -303,7 +329,7 @@
         event.preventDefault();
         var qty = number($('saleQuantity').value), enteredPrice = number($('salePrice').value);
         var displayedPrice = enteredPrice === null || !qty ? null : enteredPrice / qty;
-        if (!selectedItem || qty === null || qty <= 0 || enteredPrice === null || enteredPrice < 0 || displayedPrice === null || displayedPrice < 0) { showError('saleError', 'تحقق من الكمية والسعر'); return; }
+        if (!selectedItem || selectedItem.id === undefined || selectedItem.id === null || String(selectedItem.id).trim() === '' || qty === null || qty <= 0 || enteredPrice === null || enteredPrice < 0 || displayedPrice === null || displayedPrice < 0) { showError('saleError', 'تحقق من المنتج والكمية والسعر'); return; }
         var oldQty = editingSale ? Number(editingSale.quantity) || 0 : 0;
         if (qty > (Number(selectedItem.quantity) || 0) + oldQty) { showError('saleError', 'الكمية المتوفرة غير كافية'); return; }
         var warning = getPriceWarning(primary(displayedPrice), selectedItem);
@@ -435,9 +461,10 @@
     }
 
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
-    $('productSearch').addEventListener('input', renderProducts);
+    $('productSearch').addEventListener('input', function () { renderProducts(); scrollToProductsTop(); });
     $('saleQuantity').addEventListener('input', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
-    $('salePrice').addEventListener('input', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
+    $('salePrice').addEventListener('input', function () { salePriceManuallyEdited = true; unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
+    $('resetSalePrice').addEventListener('click', function () { salePriceManuallyEdited = false; updateSalePriceGuide(true); });
     $('backFromWarning').addEventListener('click', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; });
     $('confirmUnusualPrice').addEventListener('click', function () { unusualPriceApproved = true; $('priceWarning').hidden = true; $('saleForm').requestSubmit(); });
     window.addEventListener('scroll', function () {
