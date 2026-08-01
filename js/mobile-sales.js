@@ -163,14 +163,8 @@
     }
 
     function scrollToProductsTop() {
-        var grid = $('productsGrid');
-        if (!grid) return;
-        grid.scrollTop = 0;
         requestAnimationFrame(function () {
-            var toolbar = document.querySelector('.toolbar');
-            var toolbarHeight = toolbar ? toolbar.getBoundingClientRect().height : 0;
-            var gridTop = window.scrollY + grid.getBoundingClientRect().top;
-            window.scrollTo({ top: Math.max(0, gridTop - toolbarHeight - 8), behavior: 'smooth' });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         });
     }
 
