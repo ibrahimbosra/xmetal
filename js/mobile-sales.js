@@ -21,6 +21,7 @@
     var historyVisibleCount = 25;
     var unusualPriceApproved = false;
     var salePriceManuallyEdited = false;
+    var saleDefaultPrice = null;
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
@@ -46,6 +47,41 @@
     function notify(message) {
         var el = $('toast'); el.textContent = message; el.classList.add('show');
         clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
+    }
+
+    function updateCustomScrollbar() {
+        var track = $('customScrollbar'), thumb = $('customScrollbarThumb');
+        if (!track || !thumb) return;
+        var viewportHeight = window.innerHeight, documentHeight = document.documentElement.scrollHeight, maxScroll = Math.max(0, documentHeight - viewportHeight);
+        if (maxScroll <= 0) { track.hidden = true; return; }
+        track.hidden = false;
+        var trackHeight = track.clientHeight, thumbHeight = Math.max(58, trackHeight * viewportHeight / documentHeight), maxThumbTop = Math.max(0, trackHeight - thumbHeight);
+        thumb.style.height = thumbHeight + 'px';
+        thumb.style.transform = 'translateY(' + (maxThumbTop * window.scrollY / maxScroll) + 'px)';
+        track.setAttribute('aria-valuenow', String(Math.round(window.scrollY / maxScroll * 100)));
+    }
+
+    function setupCustomScrollbar() {
+        var track = $('customScrollbar'), thumb = $('customScrollbarThumb');
+        if (!track || !thumb) return;
+        var dragging = false, startY = 0, startTop = 0;
+        thumb.addEventListener('pointerdown', function (event) {
+            dragging = true; startY = event.clientY; startTop = thumb.getBoundingClientRect().top - track.getBoundingClientRect().top;
+            thumb.setPointerCapture(event.pointerId); event.preventDefault();
+        });
+        thumb.addEventListener('pointermove', function (event) {
+            if (!dragging) return;
+            var trackHeight = track.clientHeight, thumbHeight = thumb.offsetHeight, maxThumbTop = Math.max(0, trackHeight - thumbHeight), nextTop = Math.max(0, Math.min(maxThumbTop, startTop + event.clientY - startY));
+            var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+            window.scrollTo(0, maxThumbTop ? nextTop / maxThumbTop * maxScroll : 0);
+        });
+        thumb.addEventListener('pointerup', function () { dragging = false; });
+        thumb.addEventListener('pointercancel', function () { dragging = false; });
+        track.addEventListener('pointerdown', function (event) {
+            if (event.target === thumb) return;
+            var rect = track.getBoundingClientRect(), target = Math.max(0, Math.min(track.clientHeight, event.clientY - rect.top)), maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+            window.scrollTo({ top: target / track.clientHeight * maxScroll, behavior: 'smooth' });
+        });
     }
 
     function saveCache() {
@@ -118,9 +154,9 @@
                 '<h2 class="product-name">' + esc(item.name || 'منتج') + '</h2>' +
                 '<p class="stock">المتوفر: <strong>' + money(stock) + '</strong></p>' +
                 '<div class="prices">' +
-                '<div class="price-line base-price"><span>مبيع</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
-                '<div class="price-line mechanic-price"><span>جملة</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></div>' +
-                '</div><button class="sell-button" type="button" data-sell-item="' + esc(item.id) + '" ' + (stock <= 0 ? 'disabled' : '') + '>بيع</button>';
+                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>مبيع</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>جملة</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '</div>';
             }
             $('productsGrid').appendChild(element);
         });
@@ -144,15 +180,43 @@
         updateSalePriceGuide();
     }
 
+    function updateQuickQuantityState() {
+        var quantity = number($('saleQuantity').value);
+        document.querySelectorAll('[data-quick-quantity]').forEach(function (button) {
+            button.classList.toggle('selected', quantity !== null && quantity === Number(button.dataset.quickQuantity));
+        });
+    }
+
+    function updateAvailableStock(item) {
+        var available = item ? number(item.quantity) : null;
+        $('availableStock').textContent = available === null ? '' : 'المتوفر في المخزون: ' + money(available);
+    }
+
+    function updateQuantityWarning() {
+        var quantity = number($('saleQuantity').value);
+        var available = selectedItem ? number(selectedItem.quantity) : null;
+        if (editingSale && available !== null) available += number(editingSale.quantity) || 0;
+        var warning = $('quantityWarning');
+        if (!warning || quantity === null || available === null || quantity <= available) {
+            if (warning) { warning.hidden = true; warning.textContent = ''; }
+            return;
+        }
+        warning.textContent = 'الكمية المطلوبة أكبر من المتوفر في المخزون (' + money(available) + ').';
+        warning.hidden = false;
+    }
+
     function updateSalePriceGuide(forceAutomatic) {
         var quantity = number($('saleQuantity').value) || 0;
         if (!salePriceManuallyEdited && (forceAutomatic || !editingSale) && selectedItem && quantity > 0) {
-            $('salePrice').value = Number((secondary(selectedItem.salePrice) * quantity).toFixed(2));
+            var defaultPrice = saleDefaultPrice === null ? secondary(selectedItem.salePrice) : saleDefaultPrice;
+            $('salePrice').value = Number((defaultPrice * quantity).toFixed(2));
         }
         var total = number($('salePrice').value) || 0;
         var unit = quantity > 0 ? total / quantity : 0;
         $('saleUnitPrice').value = money(unit) + ' ' + currency.secondaryCurrencySymbol;
         $('calculatedTotal').textContent = 'الإجمالي: ' + money(total) + ' ' + currency.secondaryCurrencySymbol;
+        updateQuickQuantityState();
+        updateQuantityWarning();
     }
 
     function getPriceWarning(unitPricePrimary, item) {
@@ -208,9 +272,12 @@
         box.hidden = false;
     }
 
-    function openNewSale(item) {
-        selectedItem = item; editingSale = null; resetSaleForm();
-        $('saleModalTitle').textContent = 'بيع منتج'; $('saleProductName').textContent = item.name || 'منتج';
+    function openNewSale(item, defaultPricePrimary, mode) {
+        selectedItem = item; editingSale = null; var selectedPrice = number(defaultPricePrimary); saleDefaultPrice = secondary(selectedPrice === null ? item.salePrice : selectedPrice); resetSaleForm();
+        $('saleModal').classList.toggle('base-price-mode', mode === 'base');
+        $('saleModal').classList.toggle('mechanic-price-mode', mode === 'mechanic');
+        $('saleModalTitle').textContent = mode === 'mechanic' ? 'بيع منتج وفق سعر الجملة' : 'بيع منتج وفق السعر الأساسي'; $('saleProductName').textContent = item.name || 'منتج';
+        updateAvailableStock(item);
         $('saleQuantity').max = item.quantity;
         $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'تأكيد البيع';
@@ -221,8 +288,10 @@
     function openEditSale(sale) {
         var item = items.find(function (entry) { return entry.id === sale.itemId; });
         if (!item) return notify('المنتج غير موجود');
-        selectedItem = item; editingSale = sale; resetSaleForm();
+        selectedItem = item; editingSale = sale; saleDefaultPrice = null; resetSaleForm();
+        $('saleModal').classList.remove('base-price-mode', 'mechanic-price-mode');
         $('saleModalTitle').textContent = 'تعديل البيع'; $('saleProductName').textContent = sale.itemName || item.name || 'منتج';
+        updateAvailableStock(item);
         $('saleQuantity').value = sale.quantity; $('saleQuantity').max = (Number(item.quantity) || 0) + (Number(sale.quantity) || 0);
         $('salePrice').value = Number(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0)).toFixed(2));
         salePriceManuallyEdited = true;
@@ -465,17 +534,27 @@
     $('saleQuantity').addEventListener('input', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
     $('salePrice').addEventListener('input', function () { salePriceManuallyEdited = true; unusualPriceApproved = false; $('priceWarning').hidden = true; updateSalePriceGuide(); });
     $('resetSalePrice').addEventListener('click', function () { salePriceManuallyEdited = false; updateSalePriceGuide(true); });
+    $('quickQuantityButtons').addEventListener('click', function (event) {
+        var button = event.target.closest('[data-quick-quantity]');
+        if (!button || button.disabled) return;
+        $('saleQuantity').value = button.dataset.quickQuantity;
+        $('saleQuantity').dispatchEvent(new Event('input', { bubbles: true }));
+    });
     $('backFromWarning').addEventListener('click', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; });
     $('confirmUnusualPrice').addEventListener('click', function () { unusualPriceApproved = true; $('priceWarning').hidden = true; $('saleForm').requestSubmit(); });
     window.addEventListener('scroll', function () {
         try { localStorage.setItem(CACHE_KEY + ':scrollY', String(window.scrollY)); } catch (error) {}
+        updateCustomScrollbar();
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
-    $('productsGrid').addEventListener('click', function (event) { var button = event.target.closest('[data-sell-item]'); if (button) { var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; }); if (item) openNewSale(item); } });
+    $('productsGrid').addEventListener('click', function (event) { var button = event.target.closest('[data-sell-item]'); if (button && !button.disabled) { var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; }); if (item) openNewSale(item, number(button.dataset.sellPrice), button.dataset.sellMode); } });
     $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'), warningButton = event.target.closest('[data-warning-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); if (warningButton) { var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; }); if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.'); } });
     $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') { historyVisibleCount += 25; renderHistory(); } });
     $('backToTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
     window.addEventListener('scroll', function () { $('backToTop').classList.toggle('show', window.scrollY > 220); }, { passive: true });
+    window.addEventListener('resize', updateCustomScrollbar);
+    setupCustomScrollbar();
+    updateCustomScrollbar();
     $('saleForm').addEventListener('submit', submitSale);
     document.querySelectorAll('[data-close-modal]').forEach(function (button) { button.addEventListener('click', function () { closeModal(button.dataset.closeModal); }); });
     document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) { backdrop.addEventListener('click', function (event) { if (event.target === backdrop) closeModal(backdrop.id); }); });
