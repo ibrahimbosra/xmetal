@@ -63,8 +63,12 @@
             <h2 id="saleModalTitle">بيع منتج</h2>
             <p class="modal-product" id="saleProductName"></p>
             <form id="saleForm">
-                <label for="saleQuantity">الكمية</label>
+                <div class="quantity-label-row"><label for="saleQuantity">الكمية</label><span class="available-stock" id="availableStock" aria-live="polite"></span></div>
                 <input id="saleQuantity" type="number" min="0.01" step="any" required>
+                <p class="quantity-warning" id="quantityWarning" role="alert" hidden></p>
+                <div class="quick-quantity-row" id="quickQuantityButtons" aria-label="كميات سريعة">
+                    <button type="button" data-quick-quantity="1">1</button><button type="button" data-quick-quantity="2">2</button><button type="button" data-quick-quantity="3">3</button><button type="button" data-quick-quantity="4">4</button><button type="button" data-quick-quantity="5">5</button><button type="button" data-quick-quantity="6">6</button><button type="button" data-quick-quantity="7">7</button><button type="button" data-quick-quantity="8">8</button><button type="button" data-quick-quantity="9">9</button><button type="button" data-quick-quantity="10">10</button>
+                </div>
                 <div class="price-fields-row">
                     <div class="price-field"><label for="salePrice">إجمالي سعر البيع <span id="saleCurrencyLabel"></span></label><input id="salePrice" type="number" min="0" step="any" required></div>
                     <div class="price-field"><label for="saleUnitPrice">سعر القطعة الواحدة</label><input id="saleUnitPrice" type="text" readonly aria-readonly="true"></div>
@@ -91,6 +95,9 @@
     <div class="toast" id="toast" role="status"></div>
     <button class="install-button" id="installButton" type="button">تثبيت التطبيق</button>
     <button class="back-to-top" id="backToTop" type="button" aria-label="العودة إلى أعلى المنتجات">↑</button>
+    <div class="custom-scrollbar" id="customScrollbar" role="scrollbar" aria-label="شريط تمرير الصفحة" aria-controls="appShell" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
+        <div class="custom-scrollbar-thumb" id="customScrollbarThumb"></div>
+    </div>
 
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
