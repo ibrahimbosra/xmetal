@@ -45,12 +45,12 @@
 
         <section class="toolbar" aria-label="البحث في المنتجات">
             <label class="search-box">
-                <span aria-hidden="true">⌕</span>
+                <span class="search-icon" aria-hidden="true">⌕</span>
                 <input id="productSearch" type="search" placeholder="ابحث عن منتج" autocomplete="off">
+                <span class="product-count" id="productCount">جاري تحميل المنتجات...</span>
             </label>
             <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل">السجل</button>
         </section>
-        <p class="product-count" id="productCount">جاري تحميل المنتجات...</p>
 
         <section class="products-grid" id="productsGrid" aria-live="polite"></section>
         <div class="empty-state" id="productsEmpty" hidden>لا توجد منتجات متاحة</div>
