@@ -69,7 +69,8 @@
                     <div class="price-field"><label for="salePrice">إجمالي سعر البيع <span id="saleCurrencyLabel"></span></label><input id="salePrice" type="number" min="0" step="any" required></div>
                     <div class="price-field"><label for="saleUnitPrice">سعر القطعة الواحدة</label><input id="saleUnitPrice" type="text" readonly aria-readonly="true"></div>
                 </div>
-                <p class="input-hint">أدخل إجمالي سعر البيع، وسيتم حساب سعر القطعة الواحدة تلقائيًا.</p>
+                <p class="input-hint">يُحسب الإجمالي تلقائيًا من سعر البيع الأساسي عند تغيير الكمية، ويتوقف ذلك بعد تعديل السعر يدويًا.</p>
+                <button class="reset-price-button" id="resetSalePrice" type="button">إعادة السعر الأساسي</button>
                 <p class="calculated-total" id="calculatedTotal">الإجمالي: 0</p>
                 <button class="primary-button" type="submit">تأكيد البيع</button>
                 <p class="form-error" id="saleError" role="alert"></p>
