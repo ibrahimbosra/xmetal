@@ -52,13 +52,31 @@
     function updateCustomScrollbar() {
         var track = $('customScrollbar'), thumb = $('customScrollbarThumb');
         if (!track || !thumb) return;
-        var viewportHeight = window.innerHeight, documentHeight = document.documentElement.scrollHeight, maxScroll = Math.max(0, documentHeight - viewportHeight);
-        if (maxScroll <= 0) { track.hidden = true; return; }
+        var cards = Array.from(document.querySelectorAll('.product-card'));
+        if (!cards.length) { track.hidden = true; return; }
+        var firstCard = cards[0];
+        var lastCard = cards[cards.length - 1];
+        var firstRect = firstCard.getBoundingClientRect();
+        var lastRect = lastCard.getBoundingClientRect();
+        var trackTop = Math.max(74, firstRect.top);
+        var trackBottom = Math.min(window.innerHeight - 24, lastRect.bottom);
+        var trackHeight = Math.max(58, trackBottom - trackTop);
+        track.style.top = trackTop + 'px';
+        track.style.height = trackHeight + 'px';
         track.hidden = false;
-        var trackHeight = track.clientHeight, thumbHeight = Math.max(58, trackHeight * viewportHeight / documentHeight), maxThumbTop = Math.max(0, trackHeight - thumbHeight);
+
+        var contentStart = firstRect.top + window.scrollY;
+        var contentEnd = lastRect.bottom + window.scrollY;
+        var contentHeight = Math.max(1, contentEnd - contentStart);
+        var viewportHeight = Math.max(1, window.innerHeight - 24);
+        if (contentHeight <= viewportHeight + 80) { thumb.style.height = '0px'; thumb.style.transform = 'translateY(0px)'; track.hidden = true; return; }
+
+        var thumbHeight = Math.max(48, Math.min(trackHeight - 8, trackHeight * viewportHeight / contentHeight));
+        var scrollRange = Math.max(1, contentHeight - viewportHeight);
+        var thumbTop = Math.max(0, Math.min(trackHeight - thumbHeight, ((window.scrollY - contentStart + 24) / scrollRange) * (trackHeight - thumbHeight)));
         thumb.style.height = thumbHeight + 'px';
-        thumb.style.transform = 'translateY(' + (maxThumbTop * window.scrollY / maxScroll) + 'px)';
-        track.setAttribute('aria-valuenow', String(Math.round(window.scrollY / maxScroll * 100)));
+        thumb.style.transform = 'translateY(' + thumbTop + 'px)';
+        track.setAttribute('aria-valuenow', String(Math.round(((window.scrollY - contentStart + 24) / scrollRange) * 100)));
     }
 
     function setupCustomScrollbar() {
@@ -71,16 +89,32 @@
         });
         thumb.addEventListener('pointermove', function (event) {
             if (!dragging) return;
-            var trackHeight = track.clientHeight, thumbHeight = thumb.offsetHeight, maxThumbTop = Math.max(0, trackHeight - thumbHeight), nextTop = Math.max(0, Math.min(maxThumbTop, startTop + event.clientY - startY));
-            var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-            window.scrollTo(0, maxThumbTop ? nextTop / maxThumbTop * maxScroll : 0);
+            var trackHeight = track.offsetHeight, thumbHeight = thumb.offsetHeight, maxThumbTop = Math.max(0, trackHeight - thumbHeight), nextTop = Math.max(0, Math.min(maxThumbTop, startTop + event.clientY - startY));
+            var cards = Array.from(document.querySelectorAll('.product-card'));
+            if (!cards.length) return;
+            var firstCard = cards[0];
+            var lastCard = cards[cards.length - 1];
+            var contentStart = firstCard.getBoundingClientRect().top + window.scrollY;
+            var contentEnd = lastCard.getBoundingClientRect().bottom + window.scrollY;
+            var contentHeight = Math.max(1, contentEnd - contentStart);
+            var viewportHeight = Math.max(1, window.innerHeight - 24);
+            var scrollRange = Math.max(1, contentHeight - viewportHeight);
+            window.scrollTo(0, Math.max(0, contentStart + (nextTop / maxThumbTop) * scrollRange - 24));
         });
         thumb.addEventListener('pointerup', function () { dragging = false; });
         thumb.addEventListener('pointercancel', function () { dragging = false; });
         track.addEventListener('pointerdown', function (event) {
             if (event.target === thumb) return;
-            var rect = track.getBoundingClientRect(), target = Math.max(0, Math.min(track.clientHeight, event.clientY - rect.top)), maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-            window.scrollTo({ top: target / track.clientHeight * maxScroll, behavior: 'smooth' });
+            var rect = track.getBoundingClientRect(), target = Math.max(0, Math.min(track.offsetHeight, event.clientY - rect.top)), cards = Array.from(document.querySelectorAll('.product-card'));
+            if (!cards.length) return;
+            var firstCard = cards[0];
+            var lastCard = cards[cards.length - 1];
+            var contentStart = firstCard.getBoundingClientRect().top + window.scrollY;
+            var contentEnd = lastCard.getBoundingClientRect().bottom + window.scrollY;
+            var contentHeight = Math.max(1, contentEnd - contentStart);
+            var viewportHeight = Math.max(1, window.innerHeight - 24);
+            var scrollRange = Math.max(1, contentHeight - viewportHeight);
+            window.scrollTo({ top: Math.max(0, contentStart + (target / track.offsetHeight) * scrollRange - 24), behavior: 'smooth' });
         });
     }
 
