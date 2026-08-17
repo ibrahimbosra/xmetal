@@ -33,9 +33,13 @@ self.addEventListener('install', event => {
         for (const path of APP_SHELL) {
             try {
                 const response = await fetch(new Request(path, { cache: 'no-cache' }));
-                if (response.ok && response.type === 'basic') await cache.put(path, response);
+                if (response && response.ok && response.type === 'basic') {
+                    const clone = response.clone();
+                    await cache.put(path, clone);
+                }
             } catch (error) {
                 // A missing static asset must not prevent the Service Worker from installing.
+                console.warn('SW shell cache skipped', path, error);
             }
         }
     }).then(() => self.skipWaiting()));
@@ -48,16 +52,17 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const request = event.request;
     const url = new URL(request.url);
-    // Firebase Auth and Firestore must manage their own network and offline storage.
+
     if (!isStaticRequest(request, url)) return;
+
     event.respondWith((async () => {
-        const cached = await caches.match(request);
+        const cached = await caches.match(request).catch(() => null);
         try {
             const response = await fetch(request);
             if (response && response.ok && response.type === 'basic') {
                 const copy = response.clone();
                 const cache = await caches.open(CACHE_NAME);
-                await cache.put(request, copy);
+                await cache.put(request, copy).catch(() => {});
             }
             return response;
         } catch (error) {
