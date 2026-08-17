@@ -44,6 +44,25 @@
     function dayLabel(timestamp) { var d = new Date(timestampValue(timestamp) || Date.now()); return dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); }
     var showError = function (id, message) { $(id).textContent = message || ''; };
 
+    function ensureProductImageModal() {
+        var modal = document.getElementById('productImageModal');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.id = 'productImageModal';
+        modal.className = 'product-image-modal';
+        modal.hidden = true;
+        modal.innerHTML = '<div class="product-image-modal-backdrop" data-close-product-image="true"></div><div class="product-image-modal-content" role="dialog" aria-modal="true"><button type="button" class="product-image-modal-close" aria-label="إغلاق الصورة">×</button><img alt="صورة المنتج" src=""></div>';
+        document.body.appendChild(modal);
+        modal.querySelector('.product-image-modal-close').addEventListener('click', function () { modal.hidden = true; });
+        modal.addEventListener('click', function (event) {
+            if (event.target.hasAttribute('data-close-product-image')) modal.hidden = true;
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !modal.hidden) modal.hidden = true;
+        });
+        return modal;
+    }
+
     function notify(message) {
         var el = $('toast'); el.textContent = message; el.classList.add('show');
         clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
@@ -179,14 +198,18 @@
         var visibleIds = new Set(visible.map(function (item) { return item.id; }));
         productElements.forEach(function (element, id) { if (!visibleIds.has(id)) element.remove(); });
         visible.forEach(function (item) {
-            var stock = number(item.quantity) || 0, signature = JSON.stringify([item.name, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate]);
+            var stock = number(item.quantity) || 0, signature = JSON.stringify([item.name, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
             var element = productElements.get(item.id);
             if (!element) { element = document.createElement('article'); element.className = 'product-card'; element.dataset.productId = item.id; productElements.set(item.id, element); }
             if (element.dataset.signature !== signature) {
+                var productImages = Array.isArray(item.images) ? item.images.filter(function (img) { return img && typeof img.url === 'string' && img.url.trim(); }) : [];
+                var primaryImage = productImages.find(function (img) { return img.isPrimary; }) || productImages[0] || null;
+                var locationText = item.location && String(item.location).trim() ? 'موقع: ' + esc(item.location) : 'موقع: غير محدد';
                 element.dataset.signature = signature;
                 element.innerHTML =
+                (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
                 '<h2 class="product-name">' + esc(item.name || 'منتج') + '</h2>' +
-                '<p class="stock">المتوفر: <strong>' + money(stock) + '</strong></p>' +
+                '<p class="stock"><span><span class="stock-label"><i class="fas fa-cubes"></i></span> <strong>' + money(stock) + '</strong></span><span class="stock-divider">|</span><span><span class="location-label"><i class="fas fa-map-marker-alt"></i></span> ' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</span></p>' +
                 '<div class="prices">' +
                 '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>مبيع</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>جملة</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
@@ -270,6 +293,64 @@
         var index = sales.findIndex(function (entry) { return entry.saleId === sale.saleId; });
         if (index === -1) sales.push(sale);
         else sales[index] = Object.assign({}, sales[index], sale);
+    }
+
+    function makeMobileSaleId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') return 'sale_' + window.crypto.randomUUID();
+        return 'sale_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+    }
+
+    function readPendingSalesQueue() {
+        try {
+            var raw = localStorage.getItem('xmetal_mobile_sales_pending_v1');
+            if (!raw) return [];
+            var parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function writePendingSalesQueue(queue) {
+        try {
+            localStorage.setItem('xmetal_mobile_sales_pending_v1', JSON.stringify(queue));
+        } catch (error) {
+            console.warn('Unable to persist mobile-sales pending queue', error);
+        }
+    }
+
+    function queueMobileSaleOperation(op, sale) {
+        if (!sale || !sale.saleId) return;
+        var queue = readPendingSalesQueue();
+        var entry = { op: op, saleId: sale.saleId, payload: JSON.parse(JSON.stringify(sale)), queuedAt: Date.now(), status: 'pending' };
+        var existingIndex = queue.findIndex(function (item) { return item.saleId === sale.saleId && item.op === op; });
+        if (existingIndex >= 0) queue[existingIndex] = entry;
+        else queue.push(entry);
+        writePendingSalesQueue(queue);
+    }
+
+    async function flushPendingSalesQueue() {
+        if (!db || !navigator.onLine) return;
+        var queue = readPendingSalesQueue();
+        if (!queue.length) return;
+        var remaining = [];
+        for (var i = 0; i < queue.length; i++) {
+            var entry = queue[i];
+            if (!entry || !entry.saleId || !entry.op) continue;
+            try {
+                if (entry.op === 'create') {
+                    await db.collection('sales').doc(entry.saleId).set(sanitizeFirestoreData(entry.payload));
+                } else if (entry.op === 'update') {
+                    await db.collection('sales').doc(entry.saleId).set(sanitizeFirestoreData(entry.payload), { merge: true });
+                } else if (entry.op === 'delete') {
+                    await db.collection('sales').doc(entry.saleId).delete();
+                }
+            } catch (error) {
+                console.warn('Pending mobile sale redo failed', error);
+                remaining.push(entry);
+            }
+        }
+        writePendingSalesQueue(remaining);
     }
 
     function uniqueSales(list) {
@@ -440,12 +521,20 @@
                 var stockResult = await changeStock(selectedItem, -qty, allocations);
                 var cost = Number(selectedItem.purchasePrice) || 0;
                 var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), saleCurrency: 'secondary', source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference };
+                sale.saleId = makeMobileSaleId();
                 if (allocations) sale.purchaseBatchAllocations = allocations;
-                var saleRef = await db.collection('sales').add(sanitizeFirestoreData(sale)); sale.saleId = saleRef.id;
-                await updateStats(sale.profit);
-                await logMobileActivity('sell', sale);
-                selectedItem.quantity = stockResult.quantity; selectedItem.purchaseBatches = stockResult.purchaseBatches || selectedItem.purchaseBatches;
-                upsertSaleLocally(sale); saveCache(); notify('تم تسجيل البيع بنجاح');
+                try {
+                    await db.collection('sales').doc(sale.saleId).set(sanitizeFirestoreData(sale));
+                    await updateStats(sale.profit);
+                    await logMobileActivity('sell', sale);
+                    selectedItem.quantity = stockResult.quantity; selectedItem.purchaseBatches = stockResult.purchaseBatches || selectedItem.purchaseBatches;
+                    upsertSaleLocally(sale); saveCache(); notify('تم تسجيل البيع بنجاح');
+                } catch (offlineCreateError) {
+                    sale.pending = 'pending'; sale.syncStatus = 'pending';
+                    queueMobileSaleOperation('create', sale);
+                    upsertSaleLocally(sale); saveCache(); notify('تم حفظ البيع محليًا وسيتم مزامنته عند عودة الإنترنت');
+                    console.warn('Mobile sales offline create queued', offlineCreateError);
+                }
             } else {
                 var diff = qty - oldQty, allocations = editingSale.purchaseBatchAllocations ? JSON.parse(JSON.stringify(editingSale.purchaseBatchAllocations)) : [];
                 var extraAllocations = null;
@@ -473,9 +562,16 @@
                 }
                 var newPrice = primary(displayedPrice), newProfit = (newPrice - (Number(editingSale.purchasePriceAtTime) || 0)) * qty, profitDiff = newProfit - (Number(editingSale.profit) || 0);
                 var updated = Object.assign({}, editingSale, { quantity: qty, unitPrice: newPrice, totalAmount: newPrice * qty, profit: newProfit, saleCurrency: 'secondary', purchaseBatchAllocations: allocations, updatedAt: Date.now(), source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference });
-                await db.collection('sales').doc(editingSale.saleId).set(sanitizeFirestoreData(updated));
-                await updateStats(profitDiff); await logMobileActivity('update', updated);
-                sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم تعديل البيع');
+                try {
+                    await db.collection('sales').doc(editingSale.saleId).set(sanitizeFirestoreData(updated));
+                    await updateStats(profitDiff); await logMobileActivity('update', updated);
+                    sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم تعديل البيع');
+                } catch (offlineUpdateError) {
+                    updated.pending = 'pending'; updated.syncStatus = 'pending';
+                    queueMobileSaleOperation('update', updated);
+                    sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم حفظ التعديل محليًا وسيتم مزامنته عند عودة الإنترنت');
+                    console.warn('Mobile sales offline update queued', offlineUpdateError);
+                }
             }
             closeModal('saleModal'); renderProducts(); renderHistory();
         } catch (error) { showError('saleError', error.message || 'تعذر حفظ العملية'); }
@@ -500,14 +596,22 @@
         try {
             var result = sale.purchaseBatchAllocations && sale.purchaseBatchAllocations.length ? await restoreBatches(item.id, sale.purchaseBatchAllocations) : await updateQuantity(item.id, sale.quantity);
             if (result === null || result === undefined || (typeof result === 'object' && result.quantity === undefined)) { notify('تعذر استرجاع كمية المنتج المرتبط'); return; }
-            await db.collection('sales').doc(saleId).delete(); await updateStats(-(Number(sale.profit) || 0)); await logMobileActivity('cancel', sale);
-            item.quantity = typeof result === 'number' ? result : result.quantity;
-            if (typeof result === 'object' && result.purchaseBatches) item.purchaseBatches = result.purchaseBatches;
-            var localItemIndex = items.findIndex(function (entry) { return entry && entry.id === item.id; });
-            if (localItemIndex >= 0) items[localItemIndex] = item;
-            else items.push(item);
-            sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; }); saveCache();
-            renderProducts(); renderHistory(); notify('تم إلغاء البيع وإعادة الكمية للمخزون');
+            try {
+                await db.collection('sales').doc(saleId).delete(); await updateStats(-(Number(sale.profit) || 0)); await logMobileActivity('cancel', sale);
+                item.quantity = typeof result === 'number' ? result : result.quantity;
+                if (typeof result === 'object' && result.purchaseBatches) item.purchaseBatches = result.purchaseBatches;
+                var localItemIndex = items.findIndex(function (entry) { return entry && entry.id === item.id; });
+                if (localItemIndex >= 0) items[localItemIndex] = item;
+                else items.push(item);
+                sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; }); saveCache();
+                renderProducts(); renderHistory(); notify('تم إلغاء البيع وإعادة الكمية للمخزون');
+            } catch (syncCancelError) {
+                sale.pending = 'pending'; sale.syncStatus = 'pending';
+                queueMobileSaleOperation('delete', sale);
+                sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; }); saveCache();
+                renderProducts(); renderHistory(); notify('تم حفظ إلغاء البيع محليًا وسيتم مزامنته عند عودة الإنترنت');
+                console.warn('Mobile sales cancel queued', syncCancelError);
+            }
         } catch (error) { notify(error.message || 'تعذر إلغاء البيع'); }
     }
 
@@ -516,6 +620,7 @@
         dataLoaded = true;
         var hasCache = restoreCache();
         if (hasCache) { renderProducts(); renderHistory(); }
+        try { flushPendingSalesQueue(); } catch (error) { console.warn('Pending mobile sales flush setup failed', error); }
         startLiveListeners();
         if (hasCache) return;
         try {
@@ -575,7 +680,28 @@
         updateCustomScrollbar();
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
-    $('productsGrid').addEventListener('click', function (event) { var button = event.target.closest('[data-sell-item]'); if (button && !button.disabled) { var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; }); if (item) openNewSale(item, number(button.dataset.sellPrice), button.dataset.sellMode); } });
+    $('productsGrid').addEventListener('click', function (event) {
+        var button = event.target.closest('[data-sell-item]');
+        if (button && !button.disabled) {
+            var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; });
+            if (item) openNewSale(item, number(button.dataset.sellPrice), button.dataset.sellMode);
+            return;
+        }
+        var imageButton = event.target.closest('[data-image-view]');
+        if (imageButton) {
+            var product = items.find(function (entry) { return entry.id === imageButton.dataset.imageView; });
+            if (!product) return;
+            var images = Array.isArray(product.images) ? product.images.filter(function (img) { return img && typeof img.url === 'string' && img.url.trim(); }) : [];
+            var primaryImage = images.find(function (img) { return img.isPrimary; }) || images[0] || null;
+            if (!primaryImage) return;
+            var modal = ensureProductImageModal();
+            var imageElement = modal.querySelector('img');
+            imageElement.src = primaryImage.url;
+            imageElement.alt = product.name || 'صورة المنتج';
+            modal.hidden = false;
+            return;
+        }
+    });
     $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'), warningButton = event.target.closest('[data-warning-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); if (warningButton) { var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; }); if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.'); } });
     $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') { historyVisibleCount += 25; renderHistory(); } });
     $('backToTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
@@ -618,6 +744,9 @@
     });
     window.addEventListener('appinstalled', function () { $('installButton').style.display = 'none'; });
 
+    window.addEventListener('online', function () {
+        try { flushPendingSalesQueue(); } catch (error) { console.warn('Retry mobile-sales flush failed', error); }
+    });
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden && Date.now() - lastSyncAt > 5 * 60 * 1000 && dataLoaded) startLiveListeners();
     });

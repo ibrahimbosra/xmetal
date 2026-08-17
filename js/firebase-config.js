@@ -19,7 +19,10 @@ var firebaseAuthPersistenceReady = Promise.resolve();
 try {
     // `firebase` global should be provided by the compat SDK script in index.html
     if (window.firebase && window.firebase.initializeApp) {
-        window.firebase.initializeApp(firebaseConfig);
+        if (!window.__xmetalFirebaseInitialized) {
+            window.firebase.initializeApp(firebaseConfig);
+            window.__xmetalFirebaseInitialized = true;
+        }
         firebaseAuthInstance = window.firebase.auth();
         firebaseDbInstance = window.firebase.firestore();
         if (firebaseAuthInstance && firebaseAuthInstance.setPersistence && window.firebase.auth.Auth.Persistence.LOCAL) {
@@ -27,11 +30,27 @@ try {
                 console.warn('Auth persistence not available');
             });
         }
-        // try to enable persistence but ignore failures (e.g., multiple tabs or unsupported browsers)
-        if (firebaseDbInstance && firebaseDbInstance.enablePersistence) {
-            firebaseDbInstance.enablePersistence({ synchronizeTabs: true }).catch(function() {
-                console.warn('Firestore persistence not available');
-            });
+
+        if (firebaseDbInstance) {
+            // Prefer the modern Firestore cache API when the loaded SDK surface exposes it.
+            if (firebaseDbInstance.persistentLocalCache && typeof firebaseDbInstance.persistentLocalCache === 'function') {
+                try {
+                    firebaseDbInstance.persistentLocalCache({ tabManager: 'xmetal' });
+                } catch (err) {
+                    console.warn('Modern persistentLocalCache configuration unavailable; falling back to compatibility settings.', err);
+                }
+            }
+
+            // Compatibility fallback for the current compat SDK payload used by this project.
+            if (firebaseDbInstance.enablePersistence && typeof firebaseDbInstance.enablePersistence === 'function') {
+                try {
+                    firebaseDbInstance.enablePersistence({ synchronizeTabs: true }).catch(function() {
+                        console.warn('Firestore persistence not available');
+                    });
+                } catch (err) {
+                    console.warn('Firestore persistence initialization failed', err);
+                }
+            }
         }
     } else {
         console.warn('Firebase compat SDK not loaded; please ensure the compat scripts are included in index.html');

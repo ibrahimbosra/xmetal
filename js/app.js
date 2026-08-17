@@ -101,6 +101,79 @@ function removeSaleLocally(saleId) {
     updateAllSales(allSales);
 }
 
+function makeStableSaleId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return 'sale_' + window.crypto.randomUUID();
+    }
+    return 'sale_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+}
+
+function readOfflineSaleQueue() {
+    try {
+        var raw = localStorage.getItem('xmetal_pending_sales_v1');
+        if (!raw) return [];
+        var parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function writeOfflineSaleQueue(queue) {
+    try {
+        localStorage.setItem('xmetal_pending_sales_v1', JSON.stringify(queue));
+    } catch (e) {
+        console.warn('Unable to persist offline sales queue', e);
+    }
+}
+
+function enqueueSaleOperation(operation, sale) {
+    if (!sale || !sale.saleId) return;
+    var queue = readOfflineSaleQueue();
+    var entry = {
+        op: operation,
+        saleId: sale.saleId,
+        payload: JSON.parse(JSON.stringify(sale)),
+        queuedAt: Date.now(),
+        status: 'pending'
+    };
+    var existingIndex = queue.findIndex(function(item) { return item.saleId === entry.saleId && item.op === entry.op; });
+    if (existingIndex >= 0) queue[existingIndex] = entry;
+    else queue.push(entry);
+    writeOfflineSaleQueue(queue);
+}
+
+async function flushPendingSalesOutbox() {
+    if (!db || !navigator.onLine) return;
+    var queue = readOfflineSaleQueue();
+    if (!queue.length) return;
+    var remaining = [];
+    for (var i = 0; i < queue.length; i++) {
+        var entry = queue[i];
+        if (!entry || !entry.saleId || !entry.op) { continue; }
+        try {
+            if (entry.op === 'create') {
+                await db.collection('sales').doc(entry.saleId).set(entry.payload);
+            } else if (entry.op === 'update') {
+                await db.collection('sales').doc(entry.saleId).set(entry.payload, { merge: true });
+            } else if (entry.op === 'delete') {
+                await db.collection('sales').doc(entry.saleId).delete();
+            }
+            await logActivity('sync', 'sale', entry.saleId, 'مزامنة عملية بيع محلية', { source: 'offlineQueue' });
+        } catch (err) {
+            remaining.push(entry);
+            console.warn('Pending sale sync failed', err);
+        }
+    }
+    writeOfflineSaleQueue(remaining);
+}
+
+window.flushPendingSalesOutbox = flushPendingSalesOutbox;
+
+window.addEventListener('online', function() {
+    try { flushPendingSalesOutbox(); } catch (e) { console.warn('Online sync flush failed', e); }
+});
+
 function applyInventoryDelta(item, delta) {
     item.quantity = (Number(item.quantity) || 0) + Number(delta);
     return item;
@@ -541,6 +614,7 @@ function formatActivityChangeValue(value, formatter) {
 function buildItemChangeDetails(oldItem, newItem) {
     var fields = [
         { key: 'name', label: 'الاسم' },
+        { key: 'location', label: 'مكان القطعة' },
         { key: 'purchasePrice', label: 'سعر الشراء', formatter: function(v) { return v === null || v === undefined ? '--' : fmt(v); } },
         { key: 'salePrice', label: 'سعر البيع', formatter: function(v) { return v === null || v === undefined ? '--' : fmt(v); } },
         { key: 'quantity', label: 'الكمية' },
@@ -575,7 +649,8 @@ function buildItemChangeDetails(oldItem, newItem) {
 }
 
 function buildProductDetailsSummary(item) {
-    return 'سعر الشراء: ' + fmtMoney(item.purchasePrice) + '، سعر البيع: ' + fmtMoney(item.salePrice) + '، الكمية: ' + (item.quantity || 0) + '، الفئة: ' + (item.categoryName || 'بدون فئة') + '، إخفاء المنتج: ' + (item.hidden ? 'نعم' : 'لا') + '، عرض السعر: ' + (item.showPrice ? 'نعم' : 'لا') + (item.discountEnabled ? '، الخصم: ' + fmtMoney(item.discountValue) : '');
+    var locationText = item.location ? '، مكان القطعة: ' + item.location : '';
+    return 'سعر الشراء: ' + fmtMoney(item.purchasePrice) + '، سعر البيع: ' + fmtMoney(item.salePrice) + '، الكمية: ' + (item.quantity || 0) + '، الفئة: ' + (item.categoryName || 'بدون فئة') + locationText + '، إخفاء المنتج: ' + (item.hidden ? 'نعم' : 'لا') + '، عرض السعر: ' + (item.showPrice ? 'نعم' : 'لا') + (item.discountEnabled ? '، الخصم: ' + fmtMoney(item.discountValue) : '');
 }
 
 function buildCurrencyChangeDetails(oldSettings, newSettings) {
@@ -1944,13 +2019,23 @@ function checkSalesTarget() {
 }
 
 async function fetchInitialSales() {
+    var cachedSales = getCachedData('sales_full');
+    if (Array.isArray(cachedSales) && cachedSales.length) {
+        allSales = cachedSales;
+    }
     try {
         var oneYearAgo = Date.now() - 365 * 86400000;
-        var snap = await db.collection('sales').where('timestamp', '>=', oneYearAgo).orderBy('timestamp',
-            'desc').limit(1000).get();
+        var snap = await db.collection('sales').where('timestamp', '>=', oneYearAgo).orderBy('timestamp', 'desc').limit(1000).get({ source: 'cache' });
         allSales = snap.docs.map(function(d) { return { saleId: d.id, ...d.data() }; });
         allSalesFullLoaded = false;
-    } catch (e) { allSales = []; }
+        setCachedData('sales_full', allSales);
+    } catch (e) {
+        // Keep already restored cache intact. Do not clear it when Firestore is not reachable.
+        if (!Array.isArray(allSales) || !allSales.length) {
+            var fallbackSales = getCachedData('sales_full');
+            if (Array.isArray(fallbackSales)) allSales = fallbackSales;
+        }
+    }
 }
 
 async function ensureFullSalesData() {
@@ -2049,27 +2134,37 @@ async function ensureFullActivityData() {
 
 async function fetchItemsSmart() {
     var cached = getCachedData('items');
-    if (cached) { allItems = cached; return; }
+    if (cached) { allItems = cached; }
     try {
-        var snap = await db.collection('items').get();
+        var snap = await db.collection('items').get({ source: 'cache' });
         allItems = snap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
         setCachedData('items', allItems);
-    } catch (e) { allItems = []; }
+    } catch (e) {
+        if (!Array.isArray(allItems) || !allItems.length) {
+            var storedItems = getCachedData('items');
+            if (Array.isArray(storedItems)) allItems = storedItems;
+        }
+    }
 }
 
 async function fetchCategoriesSmart() {
     var cached = getCachedData('categories');
-    if (cached) { allCategories = cached; return; }
+    if (cached) { allCategories = cached; }
     try {
-        var snap = await db.collection('categories').get();
+        var snap = await db.collection('categories').get({ source: 'cache' });
         allCategories = snap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
         setCachedData('categories', allCategories);
-    } catch (e) { allCategories = []; }
+    } catch (e) {
+        if (!Array.isArray(allCategories) || !allCategories.length) {
+            var storedCategories = getCachedData('categories');
+            if (Array.isArray(storedCategories)) allCategories = storedCategories;
+        }
+    }
 }
 
 async function fetchCurrencySettings() {
     try {
-        var d = await db.collection('currencySettings').doc('settings').get();
+        var d = await db.collection('currencySettings').doc('settings').get({ source: 'cache' });
         if (d.exists) currencySettings = { ...currencySettings, ...d.data() };
     } catch (e) {}
     document.getElementById('secondaryCurrencyName').value = currencySettings.secondaryCurrencyName;
@@ -2094,7 +2189,7 @@ async function fetchCurrencySettings() {
 
 async function fetchStoreInfo() {
     try {
-        var d = await db.collection('storeInfo').doc('info').get();
+        var d = await db.collection('storeInfo').doc('info').get({ source: 'cache' });
         if (d.exists) storeInfoData = d.data();
     } catch (e) {}
 }
@@ -2123,26 +2218,35 @@ function renderCurrencySettingsForm() {
 
 async function fetchExpensesSmart() {
     var cached = getCachedData('expenses');
-    if (cached) { allExpenses = cached; return; }
+    if (cached) { allExpenses = cached; }
     try {
-        var snap = await db.collection('expenses').orderBy('date', 'desc').get();
+        var snap = await db.collection('expenses').orderBy('date', 'desc').get({ source: 'cache' });
         allExpenses = snap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
         setCachedData('expenses', allExpenses);
-    } catch (e) { allExpenses = []; }
+    } catch (e) {
+        if (!Array.isArray(allExpenses) || !allExpenses.length) {
+            var storedExpenses = getCachedData('expenses');
+            if (Array.isArray(storedExpenses)) allExpenses = storedExpenses;
+        }
+    }
 }
 
 async function fetchSliderItems() {
     try {
-        var snap = await db.collection('sliderTips').get();
+        var snap = await db.collection('sliderTips').get({ source: 'cache' });
         allSliderItems = snap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
-        allSliderItems.sort(function(a, b) { return (b.priority || 0) - (a.priority || 0) || (a.order || 0) - (b
-                .order || 0); });
-    } catch (e) { allSliderItems = []; }
+        allSliderItems.sort(function(a, b) { return (b.priority || 0) - (a.priority || 0) || (a.order || 0) - (b.order || 0); });
+    } catch (e) {
+        if (!Array.isArray(allSliderItems) || !allSliderItems.length) {
+            var sliderCached = getCachedData('sliderItems');
+            if (Array.isArray(sliderCached)) allSliderItems = sliderCached;
+        }
+    }
     try {
-        var sd = await db.collection('sliderSettings').doc('settings').get();
+        var sd = await db.collection('sliderSettings').doc('settings').get({ source: 'cache' });
         if (sd.exists) globalAutoSlideDelay = sd.data().autoSlideDelay || 5000;
         else globalAutoSlideDelay = 5000;
-        document.getElementById('autoSlideDelayInput').value = globalAutoSlideDelay;
+        if (document.getElementById('autoSlideDelayInput')) document.getElementById('autoSlideDelayInput').value = globalAutoSlideDelay;
     } catch (e) {}
 }
 
@@ -2566,7 +2670,7 @@ function renderInventory() {
             '"><div class="product-index-outer">' + (idx + 1) + '</div>' +
             '<div class="card-header"><div class="product-title"><span class="product-name">' + escHtml(item
                 .name) + '</span>' + (item.categoryName ? '<span class="product-category-tag">' + escHtml(item
-                .categoryName) + '</span>' : '') + '</div>' +
+                .categoryName) + '</span>' : '') + (item.location ? '<span class="product-location-tag"><i class="fas fa-map-marker-alt"></i> ' + escHtml(item.location) + '</span>' : '') + '</div>' +
             '<div class="product-meta-wrapper"><div class="product-meta"><span><i class="fas fa-cubes"></i> ' +
             item.quantity + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="' + (showItemDetails ? '' : 'blur-price') + '" style="font-size:0.8rem;color:var(--text2);">إجمالي التكلفة: ' + formatMoney(itemCapital) + '</span><span style="color:var(--text3);font-size:0.75rem;margin:0 6px;">|</span><span class="profit-badge-small ' + profitClass + ' ' + (showItemDetails ? '' :
                 'blur-price') + '">' + profit + '%</span></div>' +
@@ -2617,6 +2721,7 @@ function prepareAddItemForm() {
     isEditingItem = false;
     document.getElementById('itemForm').reset();
     var el;
+    el = document.getElementById('itemLocation'); if (el) el.value = '';
     el = document.getElementById('productHidden'); if (el) el.checked = false;
     el = document.getElementById('productLimitedQty'); if (el) el.checked = false;
     el = document.getElementById('productDiscountEnabled'); if (el) el.checked = false;
@@ -2655,6 +2760,7 @@ function editItem(id) {
     currentItemId = id;
     isEditingItem = true;
     document.getElementById('itemName').value = item.name;
+    var locationEl = document.getElementById('itemLocation'); if (locationEl) locationEl.value = item.location || '';
     tempPurchaseCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     tempSaleCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     tempMechanicCurrency = (currencySettings.defaultInputCurrency === 'secondary');
@@ -2958,6 +3064,7 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     // ensure batches summary and quantity are up-to-date before collecting values
     try { computeBatchesSummary(); } catch (err) {}
     var name = document.getElementById('itemName').value.trim();
+    var itemLocation = document.getElementById('itemLocation') ? document.getElementById('itemLocation').value.trim() : '';
     // determine purchase price from purchase batches (weighted average) if any, otherwise fallback to single field
     var uiBatches = getPurchaseBatchesFromUI();
     var purchase = 0;
@@ -3025,6 +3132,7 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     var imagesVal = document.getElementById('imagesContainer') ? collectImages() : (existingItem ? (existingItem.images || []) : []);
 
     var extra = {
+        location: itemLocation || null,
         hidden: hiddenVal,
         limitedQuantity: limitedVal,
         discountEnabled: discountEnabledVal,
@@ -3148,10 +3256,10 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
         return alert('فشل البيع: ' + (err && err.message ? err.message : 'خطأ'));
     }
     var saleObj = buildSaleObject(item, qty, price, currency, purchasePriceAtTime);
+    saleObj.saleId = saleObj.saleId || makeStableSaleId();
     if (allocations) saleObj.purchaseBatchAllocations = allocations;
     try {
-        var ref = await db.collection('sales').add(saleObj);
-        saleObj.saleId = ref.id;
+        await db.collection('sales').doc(saleObj.saleId).set(saleObj);
         await db.collection('stats').doc('totals').set({
             allTimeProfit: firebase.firestore.FieldValue.increment(saleObj.profit),
             updatedAt: Date.now()
@@ -3172,7 +3280,17 @@ document.getElementById('sellForm').addEventListener('submit', async function(e)
         if (currentSection === 'dashboard') renderDashboard();
     } catch (err) {
         if (submitBtn) { submitBtn.disabled = false; submitBtn.innerText = submitBtn.dataset._origText || 'تأكيد'; delete submitBtn.dataset._origText; }
-        alert('فشل البيع: ' + (err && err.message ? err.message : 'خطأ'));
+        // Offline write failed: keep the sale stable in the local queue and live list.
+        saleObj.pending = 'pending';
+        saleObj.syncStatus = 'pending';
+        enqueueSaleOperation('create', saleObj);
+        addSaleLocally(saleObj);
+        commitItemUpdate(item);
+        showToast('تم حفظ البيع محليًا وسيتم مزامنته عند عودة الإنترنت');
+        closeModalById('sellModal');
+        if (document.getElementById('itemsList')) renderInventory();
+        if (currentSection === 'dashboard') renderDashboard();
+        console.warn('Offline sale persisted to local queue:', err);
     }
 });
 
@@ -3631,17 +3749,14 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
                         var res = await applyBatchAllocationsTransaction(prod.id, extraAlloc);
                         prod.purchaseBatches = res.purchaseBatches;
                         prod.quantity = res.quantity;
-                        // append allocations to sale's allocations
                         newSaleAllocations = newSaleAllocations.concat(extraAlloc);
                     } catch (batchErr) {
-                        // fallback to simple stock update if batch data is inconsistent
                         var fallbackQty = await updateItemQuantityTransaction(prod.id, -diff);
                         prod.purchaseBatches = prod.purchaseBatches || [];
                         prod.quantity = fallbackQty;
                         newSaleAllocations = sale.purchaseBatchAllocations ? JSON.parse(JSON.stringify(sale.purchaseBatchAllocations)) : [];
                     }
                 } else {
-                    // diff < 0 : restore some quantity back to batches using sale allocations (LIFO)
                     var toRestore = -diff;
                     function extractRestore(existing, qty) {
                         var arr = existing.slice();
@@ -3654,7 +3769,6 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
                                 remaining -= last.quantity || 0;
                                 arr.pop();
                             } else {
-                                // split allocation
                                 restore.push({ timestamp: last.timestamp || null, unitCost: last.unitCost || 0, quantity: remaining });
                                 last.quantity = (last.quantity || 0) - remaining;
                                 arr[arr.length - 1] = last;
@@ -3673,7 +3787,6 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
                     newSaleAllocations = remainingAlloc;
                 }
             } else {
-                // fallback: simple quantity transaction
                 var nq = await updateItemQuantityTransaction(prod.id, -diff);
                 prod.quantity = nq;
             }
@@ -3688,22 +3801,31 @@ document.getElementById('editSaleForm').addEventListener('submit', async functio
     var profitDiff = newProfit - oldProfit;
     var upd = { ...sale, quantity: newQty, unitPrice: price, totalAmount: newTotal, profit: newProfit,
         saleCurrency: tempEditCurrency ? 'secondary' : 'primary', purchaseBatchAllocations: newSaleAllocations, purchasePriceAtTime: costBasis };
-    await db.collection('sales').doc(saleId).set(upd);
-    if (profitDiff !== 0) {
-        await db.collection('stats').doc('totals').set({
-            allTimeProfit: firebase.firestore.FieldValue.increment(profitDiff),
-            updatedAt: Date.now()
-        }, { merge: true });
-        window._cachedStats.allTimeProfit = (window._cachedStats.allTimeProfit || 0) + profitDiff;
+    try {
+        await db.collection('sales').doc(saleId).set(upd);
+        if (profitDiff !== 0) {
+            await db.collection('stats').doc('totals').set({
+                allTimeProfit: firebase.firestore.FieldValue.increment(profitDiff),
+                updatedAt: Date.now()
+            }, { merge: true });
+            window._cachedStats.allTimeProfit = (window._cachedStats.allTimeProfit || 0) + profitDiff;
+        }
+        await logActivity('update', 'sale', saleId, 'تعديل بيع: ' + sale.itemName + '، الكمية الجديدة: ' + newQty + '، السعر: ' + fmt(price), { oldQuantity: oldQty, newQuantity: newQty, oldProfit: oldProfit, newProfit: newProfit });
+        commitItemUpdate(prod);
+        replaceSaleLocally(saleId, upd);
+        if (document.getElementById('itemsList')) renderInventory();
+        closeModalById('editSaleModal');
+        showToast('تم تعديل البيع');
+        await reloadSalesLog();
+        if (currentSection === 'dashboard') renderDashboard();
+    } catch (err) {
+        upd.pending = 'pending'; upd.syncStatus = 'pending';
+        enqueueSaleOperation('update', upd);
+        replaceSaleLocally(saleId, upd);
+        closeModalById('editSaleModal');
+        showToast('تم حفظ التعديل محليًا وسيتم مزامنته عند عودة الإنترنت');
+        console.warn('Offline sale edit queued', err);
     }
-    await logActivity('update', 'sale', saleId, 'تعديل بيع: ' + sale.itemName + '، الكمية الجديدة: ' + newQty + '، السعر: ' + fmt(price), { oldQuantity: oldQty, newQuantity: newQty, oldProfit: oldProfit, newProfit: newProfit });
-    commitItemUpdate(prod);
-    replaceSaleLocally(saleId, upd);
-    if (document.getElementById('itemsList')) renderInventory();
-    closeModalById('editSaleModal');
-    showToast('تم تعديل البيع');
-    await reloadSalesLog();
-    if (currentSection === 'dashboard') renderDashboard();
 });
 
 async function resolveSaleProduct(sale) {
@@ -3755,19 +3877,27 @@ window.cancelSale = async function(saleId) {
     } catch (err) {
         return alert('فشل استرجاع الكمية: ' + (err && err.message ? err.message : 'خطأ غير معروف'));
     }
-    await db.collection('sales').doc(saleId).delete();
-    await db.collection('stats').doc('totals').set({
-        allTimeProfit: firebase.firestore.FieldValue.increment(-(sale.profit || 0)),
-        updatedAt: Date.now()
-    }, { merge: true });
-    window._cachedStats.allTimeProfit = (window._cachedStats.allTimeProfit || 0) - (sale.profit || 0);
-    await logActivity('delete', 'sale', saleId, 'إلغاء بيع: ' + sale.itemName + '، الكمية: ' + sale.quantity + '، الربح: ' + fmt(sale.profit || 0), { itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity, profit: sale.profit });
-    commitItemUpdate(prod);
-    removeSaleLocally(saleId);
-    if (document.getElementById('itemsList')) renderInventory();
-    showToast('تم إلغاء البيع');
-    await reloadSalesLog();
-    if (currentSection === 'dashboard') renderDashboard();
+    try {
+        await db.collection('sales').doc(saleId).delete();
+        await db.collection('stats').doc('totals').set({
+            allTimeProfit: firebase.firestore.FieldValue.increment(-(sale.profit || 0)),
+            updatedAt: Date.now()
+        }, { merge: true });
+        window._cachedStats.allTimeProfit = (window._cachedStats.allTimeProfit || 0) - (sale.profit || 0);
+        await logActivity('delete', 'sale', saleId, 'إلغاء بيع: ' + sale.itemName + '، الكمية: ' + sale.quantity + '، الربح: ' + fmt(sale.profit || 0), { itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity, profit: sale.profit });
+        commitItemUpdate(prod);
+        removeSaleLocally(saleId);
+        if (document.getElementById('itemsList')) renderInventory();
+        showToast('تم إلغاء البيع');
+        await reloadSalesLog();
+        if (currentSection === 'dashboard') renderDashboard();
+    } catch (err) {
+        sale.pending = 'pending'; sale.syncStatus = 'pending';
+        enqueueSaleOperation('delete', sale);
+        removeSaleLocally(saleId);
+        showToast('تم حفظ إلغاء البيع محليًا وسيتم مزامنته عند عودة الإنترنت');
+        console.warn('Offline cancel sale queued', err);
+    }
 };
 
 document.getElementById('archiveSalesBtn').addEventListener('click', async function() {
@@ -4896,9 +5026,25 @@ var csvExportColumns = [
         getter: function(item) { return '$' + fmtMoney(item.salePrice || 0); }
     },
     {
+        id: 'mechanicPrice',
+        label: 'سعر الميكانيكي',
+        getter: function(item) {
+            var mechanic = (window.PriceHelpers && window.PriceHelpers.getMechanicDisplayPrice) ? window.PriceHelpers.getMechanicDisplayPrice(item) : (item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : item.salePrice);
+            return '$' + fmtMoney(mechanic || 0);
+        }
+    },
+    {
         id: 'secondarySalePrice',
         label: 'سعر المبيع بالعملة الثانوية',
         getter: function(item) { return fmtMoney(convertToSecondary(item.salePrice || 0)) + ' ' + currencySettings.secondaryCurrencySymbol; }
+    },
+    {
+        id: 'secondaryMechanicPrice',
+        label: 'سعر الميكانيكي بالعملة الثانوية',
+        getter: function(item) {
+            var mechanic = (window.PriceHelpers && window.PriceHelpers.getMechanicDisplayPrice) ? window.PriceHelpers.getMechanicDisplayPrice(item) : (item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : item.salePrice);
+            return fmtMoney(convertToSecondary(mechanic || 0)) + ' ' + currencySettings.secondaryCurrencySymbol;
+        }
     },
     {
         id: 'quantity',
