@@ -923,6 +923,17 @@ tr:hover td {
     color: #4a6fa5;
     white-space: nowrap;
 }
+.product-location-tag {
+    font-size: 0.7rem;
+    background: #ecfdf5;
+    padding: 2px 8px;
+    border-radius: 30px;
+    color: #166534;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
 .product-meta-wrapper {
     display: flex;
     gap: 5px;
