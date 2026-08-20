@@ -312,6 +312,17 @@
                     </div>
                     <div style="display:grid;gap:20px;">
                         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;">
+                            <h3 style="margin-bottom:14px;font-weight:800;">أسماء المستخدمين</h3>
+                            <form id="userDisplayNamesForm">
+                                <div class="form-group">
+                                    <label>البريد الإلكتروني واسم المستخدم</label>
+                                    <textarea id="userDisplayNamesText" rows="8" style="width:100%;padding:12px;border-radius:16px;border:1px solid var(--border);font-family:'Cairo',sans-serif;background:#f8fafc;color:var(--text);resize:vertical;" placeholder="example@gmail.com | الاسم الكامل"></textarea>
+                                    <p style="margin-top:8px;color:var(--text3);font-size:0.8rem;">أدخل سطرًا واحدًا لكل مستخدم بصيغة: البريد الإلكتروني | الاسم</p>
+                                </div>
+                                <div class="form-actions"><button type="submit" class="save-btn">حفظ أسماء المستخدمين</button></div>
+                            </form>
+                        </div>
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;">
                             <h3 style="margin-bottom:14px;font-weight:800;">معلومات المتجر</h3>
                             <form id="storeInfoForm">
                                 <div class="form-group"><label>اسم المتجر</label><div class="input-wrapper"><i class="fas fa-store"></i><input type="text" id="storeName"></div></div>
