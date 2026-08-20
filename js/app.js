@@ -322,6 +322,7 @@ function buildSaleObject(item, qty, price, currency, purchasePriceAtTime) {
 let allSalesFullLoaded = false;
 let currencySettings = { secondaryCurrencyName: 'ريال سعودي', secondaryCurrencySymbol: '﷼', exchangeRate: 3.75,
     defaultInputCurrency: 'primary', defaultSellCurrency: 'primary', enablePurchaseBatches: false };
+let userDisplayNameSettings = {};
 let storeInfoData = {};
 let currentSection = 'dashboard';
 let salesPage = 0,
@@ -683,6 +684,18 @@ function buildCurrencyChangeDetails(oldSettings, newSettings) {
     return { details: changes.join('، '), metadata: { changes: metadata, before: oldSettings, after: newSettings } };
 }
 
+function normalizeActivityRecord(item) {
+    if (!item || typeof item !== 'object') return item || {};
+    var normalized = Object.assign({}, item);
+    normalized.actionType = normalized.actionType || normalized.action || '';
+    normalized.entity = normalized.entity || normalized.entityType || '';
+    normalized.entityId = normalized.entityId || normalized.entityID || normalized.id || null;
+    normalized.details = normalized.details || normalized.message || '';
+    normalized.user = normalized.user || normalized.sellerEmail || normalized.email || normalized.actor || '';
+    if (!normalized.id && normalized.docId) normalized.id = normalized.docId;
+    return normalized;
+}
+
 function formatActivityDetails(details) {
     return escHtml(details || '');
 }
@@ -1016,14 +1029,15 @@ function formatActivityMetadata(metadata) {
 }
 
 function writeActivityModalContent(item) {
+    var record = normalizeActivityRecord(item || {});
     document.getElementById('activityDetailContent').innerHTML = '<div style="display:grid;gap:10px;">' +
-        '<div><strong>التاريخ:</strong> ' + fmtDateTime(item.timestamp) + '</div>' +
-        '<div><strong>الإجراء:</strong> ' + escHtml(getActivityLabel(item.actionType)) + '</div>' +
-        '<div><strong>الكيان:</strong> ' + escHtml(getEntityLabel(item.entity)) + '</div>' +
-        '<div><strong>المعرف:</strong> ' + escHtml(item.entityId || '--') + '</div>' +
-        '<div><strong>المستخدم:</strong> ' + escHtml(item.user || '--') + '</div>' +
-        '<div><strong>التفاصيل:</strong> ' + formatActivityDetails(item.details) + '</div>' +
-        (item.metadata ? '<div><strong>البيانات الإضافية:</strong>' + formatActivityMetadata(item.metadata) + '</div>' : '') +
+        '<div><strong>التاريخ:</strong> ' + fmtDateTime(record.timestamp) + '</div>' +
+        '<div><strong>الإجراء:</strong> ' + escHtml(getActivityLabel(record.actionType)) + '</div>' +
+        '<div><strong>الكيان:</strong> ' + escHtml(getEntityLabel(record.entity)) + '</div>' +
+        '<div><strong>المعرف:</strong> ' + escHtml(record.entityId || '--') + '</div>' +
+        '<div><strong>المستخدم:</strong> ' + escHtml(record.user || '--') + '</div>' +
+        '<div><strong>التفاصيل:</strong> ' + formatActivityDetails(record.details) + '</div>' +
+        (record.metadata ? '<div><strong>البيانات الإضافية:</strong>' + formatActivityMetadata(record.metadata) + '</div>' : '') +
         '</div>';
 }
 
@@ -1449,7 +1463,7 @@ async function fetchActivityPage() {
     if (activityQueryCache.lastDoc) query = query.startAfter(activityQueryCache.lastDoc);
     try {
         var snap = await query.get();
-        var rawItems = snap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
+        var rawItems = snap.docs.map(function(d) { return normalizeActivityRecord({ id: d.id, ...d.data() }); });
         var nextCursor = null;
         if (rawItems.length > activityPageSize) {
             nextCursor = snap.docs[activityPageSize - 1];
@@ -1483,7 +1497,7 @@ function renderActivityTable() {
         activityLabel.textContent = currentCount > 0 ? 'عرض ' + currentCount + ' من السجلات' : (activityQueryCache.loading ? 'جاري تحميل السجلات...' : 'لا توجد سجلات');
     }
     var body = document.getElementById('activityLogBody');
-    if (body) body.innerHTML = getActivityRowsHtml(activityQueryCache.currentPageItems || []);
+    if (body) body.innerHTML = getActivityRowsHtml((activityQueryCache.currentPageItems || []).map(normalizeActivityRecord));
     renderActivityLoadMore();
 }
 
@@ -1546,9 +1560,9 @@ function resetActivityFilters() {
 }
 
 function viewActivityLogDetail(recordId) {
-    var item = (activityQueryCache.currentPageItems || []).find(function(it) { return it.id === recordId; });
+    var item = (activityQueryCache.currentPageItems || []).map(normalizeActivityRecord).find(function(it) { return it.id === recordId; });
     if (!item) return;
-    writeActivityModalContent(item);
+    writeActivityModalContent(normalizeActivityRecord(item));
     document.getElementById('activityDetailModal').classList.add('show');
 }
 
@@ -2194,6 +2208,51 @@ async function fetchStoreInfo() {
     } catch (e) {}
 }
 
+function formatUserDisplayNamesForInput(data) {
+    var map = data && typeof data === 'object' ? data : {};
+    var rows = [];
+    Object.keys(map).forEach(function(key) {
+        var value = map[key];
+        var email = key;
+        var name = '';
+        if (value && typeof value === 'object') {
+            if (value.name || value.displayName || value.fullName) {
+                email = value.email || value.userEmail || key;
+                name = value.name || value.displayName || value.fullName;
+            }
+        } else if (typeof value === 'string') {
+            name = value;
+        }
+        if (email && name) rows.push(String(email).trim() + ' | ' + String(name).trim());
+    });
+    return rows.join('\n');
+}
+
+function parseUserDisplayNamesFromInput(rawText) {
+    var map = {};
+    var lines = String(rawText || '').split(/\r?\n/);
+    lines.forEach(function(line) {
+        var trimmed = line.trim();
+        if (!trimmed) return;
+        var splitIndex = trimmed.indexOf('|');
+        var email = splitIndex >= 0 ? trimmed.slice(0, splitIndex).trim() : trimmed;
+        var name = splitIndex >= 0 ? trimmed.slice(splitIndex + 1).trim() : '';
+        if (!email || !name) return;
+        map[String(email).trim().toLowerCase()] = String(name).trim();
+    });
+    return map;
+}
+
+async function fetchUserDisplayNameSettings() {
+    try {
+        var d = await db.collection('settings').doc('userDisplayNames').get({ source: 'cache' });
+        if (d.exists && d.data()) userDisplayNameSettings = d.data();
+    } catch (e) {}
+    if (!userDisplayNameSettings || typeof userDisplayNameSettings !== 'object') userDisplayNameSettings = {};
+    var textArea = document.getElementById('userDisplayNamesText');
+    if (textArea) textArea.value = formatUserDisplayNamesForInput(userDisplayNameSettings);
+}
+
 function isPurchaseBatchesEnabled() {
     return !!currencySettings.enablePurchaseBatches;
 }
@@ -2313,6 +2372,7 @@ function renderCurrentSection() {
             case 'settings':
                 renderStoreInfo();
                 renderCurrencySettingsForm();
+                fetchUserDisplayNameSettings();
                 break;
             case 'aiAssistant':
                 break;
@@ -4492,6 +4552,19 @@ document.getElementById('storeInfoForm').addEventListener('submit', async functi
     showToast('تم الحفظ');
 });
 document.getElementById('cancelStoreInfoBtn').addEventListener('click', function() { renderStoreInfo(); });
+
+var userDisplayNamesForm = document.getElementById('userDisplayNamesForm');
+if (userDisplayNamesForm) {
+    userDisplayNamesForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        var text = document.getElementById('userDisplayNamesText').value || '';
+        var map = parseUserDisplayNamesFromInput(text);
+        userDisplayNameSettings = map;
+        await db.collection('settings').doc('userDisplayNames').set(map);
+        await logActivity('userDisplayNamesUpdate', 'settings', 'userDisplayNames', 'تحديث أسماء المستخدمين', map);
+        showToast('تم حفظ أسماء المستخدمين');
+    });
+}
 
 var _enablePurchaseBatchesCheckbox = document.getElementById('enablePurchaseBatches');
 if (_enablePurchaseBatchesCheckbox) {
