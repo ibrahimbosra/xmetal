@@ -10,15 +10,20 @@
     var currency = { secondaryCurrencySymbol: '﷼', exchangeRate: 3.75 };
     var selectedItem = null;
     var editingSale = null;
+    var activeSaleMode = null;
     var toastTimer = null;
     var inventorySort = localStorage.getItem('xmetalInventorySort') || 'alphabetical';
+    var productFilter = 'available';
     var dataLoaded = false;
     var listenersStarted = false;
     var lastSyncAt = 0;
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobileSalesCacheV1';
     var installPrompt = null;
-    var historyVisibleCount = 25;
+    var historyStartDate = null;
+    var historyLiveStartDate = null;
+    var historyHasMore = true;
+    var historyLoading = false;
     var unusualPriceApproved = false;
     var salePriceManuallyEdited = false;
     var saleDefaultPrice = null;
@@ -27,6 +32,17 @@
 
     var $ = function (id) { return document.getElementById(id); };
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+    function highlightMatches(value, term) {
+        var text = String(value == null ? '' : value), searchTerm = String(term || '').trim();
+        if (!searchTerm) return esc(text);
+        var pattern = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), matcher = new RegExp(pattern, 'gi'), result = '', lastIndex = 0, match;
+        while ((match = matcher.exec(text)) !== null) {
+            result += esc(text.slice(lastIndex, match.index)) + '<mark class="product-highlight">' + esc(match[0]) + '</mark>';
+            lastIndex = matcher.lastIndex;
+            if (!match[0]) matcher.lastIndex += 1;
+        }
+        return result + esc(text.slice(lastIndex));
+    }
     var number = function (value) { var n = Number(value); return Number.isFinite(n) ? n : null; };
     var secondary = function (primary) { return (Number(primary) || 0) * (Number(currency.exchangeRate) || 1); };
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
@@ -44,6 +60,8 @@
     var dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
     function dayKey(timestamp) { var d = new Date(timestampValue(timestamp) || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
     function dayLabel(timestamp) { var d = new Date(timestampValue(timestamp) || Date.now()); return dayNames[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); }
+    function historyInitialStart() { var dateValue = new Date(); dateValue.setHours(0, 0, 0, 0); dateValue.setDate(dateValue.getDate() - 1); return dateValue; }
+    function addDays(dateValue, days) { var next = new Date(dateValue); next.setDate(next.getDate() + days); return next; }
     var showError = function (id, message) { $(id).textContent = message || ''; };
 
     function ensureProductImageModal() {
@@ -234,30 +252,63 @@
     }
 
     function filterAndSortProducts(term) {
-        var searchTerm = String(term || '').trim();
-        var available = items.filter(function (item) { return (number(item.quantity) || 0) > 0; });
-        if (!searchTerm) return available.sort(compareInventoryItems);
-        var filtered = available.filter(function (item) { return String(item.name || '').includes(searchTerm); });
-        filtered.forEach(function (item) {
-            item._searchPriority = 3;
-            if (String(item.name || '').startsWith(searchTerm)) item._searchPriority = 1;
-            else if (String(item.name || '').split(/\s+/).some(function (word) { return word.startsWith(searchTerm); })) item._searchPriority = 2;
+        var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
+        var source = (Array.isArray(items) ? items : []).filter(function (item) {
+            var available = (number(item.quantity) || 0) > 0;
+            return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
         });
-        filtered.sort(function (a, b) { return a._searchPriority - b._searchPriority || compareInventoryItems(a, b); });
-        filtered.forEach(function (item) { delete item._searchPriority; });
-        return filtered;
+        if (searchTerm) {
+            var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });
+            searched.forEach(function (item) {
+                item._searchPriority = 3;
+                var normalizedName = String(item.name || '').toLocaleLowerCase();
+                if (normalizedName.startsWith(normalizedSearchTerm)) item._searchPriority = 1;
+                else if (normalizedName.split(/\s+/).some(function (word) { return word.startsWith(normalizedSearchTerm); })) item._searchPriority = 2;
+            });
+            searched.sort(function (a, b) { return a._searchPriority - b._searchPriority || compareInventoryItems(a, b); });
+            searched.forEach(function (item) { delete item._searchPriority; });
+            return searched;
+        }
+        return source.sort(compareInventoryItems);
+    }
+
+    function updateProductFilterCounts() {
+        var all = Array.isArray(items) ? items : [];
+        var counts = {
+            all: all.length,
+            available: all.filter(function (item) { return (number(item.quantity) || 0) > 0; }).length,
+            expired: all.filter(function (item) { return (number(item.quantity) || 0) <= 0; }).length
+        };
+        document.querySelectorAll('[data-filter-count]').forEach(function (element) { element.textContent = counts[element.dataset.filterCount] || 0; });
+        document.querySelectorAll('[data-product-filter]').forEach(function (button) { button.classList.toggle('active', button.dataset.productFilter === productFilter); });
+    }
+
+    function updateSearchSummary(searchTerm, visibleCount) {
+        var summary = $('searchSummary'), term = String(searchTerm || '').trim();
+        if (!summary) return;
+        if (!term) { summary.hidden = true; summary.textContent = ''; return; }
+        var filterNames = { all: 'كل المنتجات', available: 'المتوفر', expired: 'المنتهية' }, filterName = filterNames[productFilter] || filterNames.available;
+        var highlightedTerm = '<span class="search-summary-term">"' + highlightMatches(term, term) + '"</span>';
+        summary.hidden = false;
+        summary.innerHTML = visibleCount
+            ? 'نتائج البحث عن ' + highlightedTerm + ' في ' + filterName + ': ' + visibleCount + ' منتجات'
+            : (productFilter === 'all'
+                ? 'لم نجد منتجات مطابقة لـ ' + highlightedTerm + '.'
+                : 'لم نجد منتجات مطابقة لـ ' + highlightedTerm + ' في ' + filterName + '.<br><span class="search-summary-hint">جرّب تغيير الفلتر إلى "كل المنتجات".</span>');
     }
 
     function renderProducts() {
-        var visible = filterAndSortProducts($('productSearch').value);
-        $('productCount').textContent = visible.length + ' منتج';
+        var searchTerm = $('productSearch').value, visible = filterAndSortProducts(searchTerm);
+        updateProductFilterCounts();
+        updateSearchSummary(searchTerm, visible.length);
         $('productsEmpty').hidden = visible.length !== 0;
         var visibleIds = new Set(visible.map(function (item) { return item.id; }));
         productElements.forEach(function (element, id) { if (!visibleIds.has(id)) element.remove(); });
         visible.forEach(function (item) {
-            var stock = number(item.quantity) || 0, signature = JSON.stringify([item.name, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
+            var stock = number(item.quantity) || 0, signature = JSON.stringify([item.name, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
             var element = productElements.get(item.id);
             if (!element) { element = document.createElement('article'); element.className = 'product-card'; element.dataset.productId = item.id; productElements.set(item.id, element); }
+            element.classList.toggle('expired-product', stock <= 0);
             if (element.dataset.signature !== signature) {
                 var productImages = Array.isArray(item.images) ? item.images.filter(function (img) { return img && typeof img.url === 'string' && img.url.trim(); }) : [];
                 var primaryImage = productImages.find(function (img) { return img.isPrimary; }) || productImages[0] || null;
@@ -265,11 +316,11 @@
                 element.dataset.signature = signature;
                 element.innerHTML =
                 (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
-                '<h2 class="product-name">' + esc(item.name || 'منتج') + '</h2>' +
-                '<p class="stock"><span><span class="stock-label"><i class="fas fa-cubes"></i></span> <strong>' + money(stock) + '</strong></span><span class="stock-divider">|</span><span><span class="location-label"><i class="fas fa-map-marker-alt"></i></span> ' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</span></p>' +
+                '<h2 class="product-name">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
+                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong>' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
-                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>مبيع</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
-                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>جملة</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '</div>';
             }
             $('productsGrid').appendChild(element);
@@ -458,10 +509,11 @@
     }
 
     function openNewSale(item, defaultPricePrimary, mode) {
-        selectedItem = item; editingSale = null; var selectedPrice = number(defaultPricePrimary); saleDefaultPrice = secondary(selectedPrice === null ? item.salePrice : selectedPrice); resetSaleForm();
+        selectedItem = item; editingSale = null; activeSaleMode = mode === 'mechanic' ? 'mechanic' : 'base'; var selectedPrice = number(defaultPricePrimary); saleDefaultPrice = secondary(selectedPrice === null ? item.salePrice : selectedPrice); resetSaleForm();
         $('saleModal').classList.toggle('base-price-mode', mode === 'base');
         $('saleModal').classList.toggle('mechanic-price-mode', mode === 'mechanic');
-        $('saleModalTitle').textContent = mode === 'mechanic' ? 'بيع منتج وفق سعر الجملة' : 'بيع منتج وفق السعر الأساسي'; $('saleProductName').textContent = item.name || 'منتج';
+        $('saleModalEyebrow').textContent = mode === 'mechanic' ? 'تسجيل بيع لميكانيكي' : 'تسجيل بيع';
+        $('saleModalTitle').textContent = mode === 'mechanic' ? 'بيع منتج وفق سعر الميكانيكي' : 'بيع منتج وفق السعر الأساسي'; $('saleProductName').textContent = item.name || 'منتج';
         updateAvailableStock(item);
         $('saleQuantity').max = Number(item.quantity) || 0;
         $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
@@ -473,7 +525,7 @@
     function openEditSale(sale) {
         var item = items.find(function (entry) { return entry.id === sale.itemId; });
         if (!item) return notify('المنتج غير موجود');
-        selectedItem = item; editingSale = sale; saleDefaultPrice = null; resetSaleForm();
+        selectedItem = item; editingSale = sale; activeSaleMode = null; saleDefaultPrice = null; resetSaleForm();
         $('saleModal').classList.remove('base-price-mode', 'mechanic-price-mode');
         $('saleModalTitle').textContent = 'تعديل البيع'; $('saleProductName').textContent = sale.itemName || item.name || 'منتج';
         updateAvailableStock(item);
@@ -486,31 +538,65 @@
         openModal('saleModal');
     }
 
+    function historyQuery(startDate, endDate) {
+        return db.collection('sales').where('source', '==', SOURCE).where('timestamp', '>=', startDate.getTime()).where('timestamp', '<', endDate.getTime()).orderBy('timestamp', 'desc');
+    }
+
+    function salesFromSnapshot(snap) {
+        return uniqueSales(snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); }));
+    }
+
+    async function loadOlderSales() {
+        if (historyLoading || !historyStartDate) return;
+        historyLoading = true;
+        var button = $('loadMoreSales');
+        if (button) { button.disabled = true; button.textContent = 'جاري تحميل الأقدم...'; }
+        var endDate = historyStartDate, startDate = addDays(endDate, -2);
+        try {
+            var snap = await historyQuery(startDate, endDate).get();
+            var olderSales = salesFromSnapshot(snap);
+            sales = uniqueSales(sales.concat(olderSales));
+            historyStartDate = startDate;
+            if (!olderSales.length) historyHasMore = false;
+            saveCache();
+            renderHistory();
+        } catch (error) {
+            notify('تعذر تحميل المبيعات الأقدم');
+            if (button) { button.disabled = false; button.textContent = 'عرض المزيد'; }
+        } finally { historyLoading = false; }
+    }
+
     function renderHistory() {
         try {
         Promise.resolve(refreshUserDisplayNameMap()).catch(function () {});
         var ordered = (Array.isArray(sales) ? sales : []).slice().sort(function (a, b) { return timestampValue(b.timestamp) - timestampValue(a.timestamp); });
-        var shown = ordered.slice(0, historyVisibleCount), previousDay = null, currentDayTotal = 0, html = '';
-        shown.forEach(function (sale, index) {
+        var dayStats = {};
+        ordered.forEach(function (sale) {
+            var key = dayKey(sale.timestamp);
+            if (!dayStats[key]) dayStats[key] = { count: 0, total: 0 };
+            dayStats[key].count += 1;
+            dayStats[key].total += secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0));
+        });
+        var shown = ordered, previousDay = null, dayNumber = 0, html = '';
+        shown.forEach(function (sale) {
             var currentDay = dayKey(sale.timestamp);
             if (currentDay !== previousDay) {
-                if (previousDay !== null) html += '<div class="day-total">إجمالي مبيعات اليوم: ' + money(currentDayTotal) + ' ' + esc(currency.secondaryCurrencySymbol) + '</div>';
-                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong></div>';
+                dayNumber = dayStats[currentDay].count;
+                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong><span class="day-total">إجمالي مبيعات اليوم: ' + money(dayStats[currentDay].total) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></div>';
                 previousDay = currentDay;
-                currentDayTotal = 0;
             }
-            currentDayTotal += secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0));
             var warningBadge = sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? '<button type="button" class="warning-badge ' + esc(sale.priceWarningLevel) + '" data-warning-sale="' + esc(sale.saleId) + '" aria-label="عرض سبب التنبيه">!</button>' : '';
             var sellerLabel = getSellerLabel(sale);
-            html += '<article class="sale-record ' + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? 'has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number" aria-label="رقم العملية">' + (index + 1) + '</div><h3>' + esc(sale.itemName || 'منتج') + warningBadge + '</h3>' +
+            var saleModeClass = sale.saleMode === 'base' ? ' sale-mode-base' : (sale.saleMode === 'mechanic' ? ' sale-mode-mechanic' : '');
+            html += '<article class="sale-record' + saleModeClass + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? ' has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number" aria-label="رقم العملية">' + dayNumber + '</div><h3>' + esc(sale.itemName || 'منتج') + warningBadge + '</h3>' +
                 '<div class="sale-meta"><span>' + esc(date(sale.timestamp)) + '</span><span>البائع: ' + esc(sellerLabel) + '</span><span>الكمية: ' + money(sale.quantity) + '</span></div>' +
                 '<p class="sale-total">سعر القطعة: <span class="sale-unit-value">' + money(secondary(sale.unitPrice)) + '</span> × الكمية: <span class="sale-quantity-value">' + money(sale.quantity) + '</span> = الإجمالي: <span class="sale-grand-total">' + money(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></p>' +
                 '<div class="record-actions"><button type="button" data-edit-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
                 '<button type="button" class="cancel-sale" data-cancel-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
+            dayNumber -= 1;
         });
-        if (previousDay !== null) html += '<div class="day-total">إجمالي مبيعات اليوم: ' + money(currentDayTotal) + ' ' + esc(currency.secondaryCurrencySymbol) + '</div>';
         if (!ordered.length) html = '<div class="empty-state">لا توجد عمليات بيع حتى الآن</div>';
-        else if (shown.length < ordered.length) html += '<button class="load-more" id="loadMoreSales" type="button">عرض المزيد</button>';
+        if (historyHasMore && historyStartDate) html += '<button class="load-more" id="loadMoreSales" type="button">عرض المزيد</button>';
         $('salesHistory').innerHTML = html;
         } catch (error) {
             console.warn('تعذر عرض سجل المبيعات:', error);
@@ -606,7 +692,7 @@
                 var stockResult = await changeStock(selectedItem, -qty, allocations);
                 var cost = Number(selectedItem.purchasePrice) || 0;
                 var currentSeller = getCurrentSellerInfo();
-                var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), sellerEmail: currentSeller.email, sellerName: currentSeller.name, user: currentSeller.email, saleCurrency: 'secondary', source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference };
+                var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), sellerEmail: currentSeller.email, sellerName: currentSeller.name, user: currentSeller.email, saleCurrency: 'secondary', source: SOURCE, saleMode: activeSaleMode, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference };
                 sale.saleId = makeMobileSaleId();
                 if (allocations) sale.purchaseBatchAllocations = allocations;
                 try {
@@ -744,6 +830,9 @@
         if (dataLoaded) return;
         dataLoaded = true;
         var hasCache = restoreCache();
+        historyLiveStartDate = historyInitialStart();
+        historyStartDate = historyLiveStartDate;
+        sales = sales.filter(function (sale) { var timestamp = timestampValue(sale.timestamp); return timestamp >= historyLiveStartDate.getTime() && timestamp < addDays(historyLiveStartDate, 2).getTime(); });
         if (hasCache) { renderProducts(); renderHistory(); }
         try { flushPendingSalesQueue(); } catch (error) { console.warn('Pending mobile sales flush setup failed', error); }
         startLiveListeners();
@@ -751,16 +840,14 @@
         try {
             var cacheRead = Promise.all([
                 db.collection('items').get({ source: 'cache' }),
-                db.collection('sales').where('source', '==', SOURCE).get({ source: 'cache' }),
                 db.collection('currencySettings').doc('settings').get({ source: 'cache' })
             ]).then(function (result) {
                 items = result[0].docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
-                sales = result[1].docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
-                if (result[2].exists) currency = Object.assign(currency, result[2].data());
+                if (result[1].exists) currency = Object.assign(currency, result[1].data());
                 renderProducts(); renderHistory(); saveCache();
             });
             await Promise.race([cacheRead, new Promise(function (resolve) { setTimeout(resolve, 1200); })]);
-        } catch (error) { $('productCount').textContent = 'تعذر تحميل المنتجات'; notify('تعذر الاتصال بالنظام'); console.error(error); }
+        } catch (error) { notify('تعذر الاتصال بالنظام'); console.error(error); }
     }
 
     function startLiveListeners() {
@@ -775,10 +862,13 @@
             if (changed) { items = nextItems; renderProducts(); saveCache(); }
             lastSyncAt = Date.now();
         });
-        db.collection('sales').where('source', '==', SOURCE).onSnapshot(function (snap) {
-            var nextSales = snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); });
-            nextSales = uniqueSales(nextSales);
-            if (JSON.stringify(nextSales) !== JSON.stringify(uniqueSales(sales))) { sales = nextSales; renderHistory(); saveCache(); }
+        historyLiveStartDate = historyLiveStartDate || historyInitialStart();
+        historyStartDate = historyStartDate || historyLiveStartDate;
+        historyQuery(historyLiveStartDate, addDays(historyLiveStartDate, 2)).onSnapshot(function (snap) {
+            var nextSales = salesFromSnapshot(snap);
+            var olderSales = sales.filter(function (sale) { return timestampValue(sale.timestamp) < historyLiveStartDate.getTime(); });
+            var mergedSales = uniqueSales(nextSales.concat(olderSales));
+            if (JSON.stringify(mergedSales) !== JSON.stringify(uniqueSales(sales))) { sales = mergedSales; renderHistory(); saveCache(); }
             lastSyncAt = Date.now();
         });
         db.collection('currencySettings').doc('settings').onSnapshot(function (doc) {
@@ -789,6 +879,13 @@
 
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
     $('productSearch').addEventListener('input', function () { renderProducts(); scrollToProductsTop(); });
+    $('productFilters').addEventListener('click', function (event) {
+        var button = event.target.closest('[data-product-filter]');
+        if (!button) return;
+        productFilter = button.dataset.productFilter || 'available';
+        renderProducts();
+        scrollToProductsTop();
+    });
     $('saleQuantity').addEventListener('input', function () {
         var quantity = number($('saleQuantity').value);
         var available = selectedItem ? Number(selectedItem.quantity) || 0 : 0;
@@ -841,9 +938,19 @@
         }
     });
     $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'), warningButton = event.target.closest('[data-warning-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); if (warningButton) { var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; }); if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.'); } });
-    $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') { historyVisibleCount += 25; renderHistory(); } });
+    $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') loadOlderSales(); });
     $('backToTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
-    window.addEventListener('scroll', function () { $('backToTop').classList.toggle('show', window.scrollY > 220); }, { passive: true });
+    $('backToBottom').addEventListener('click', function () {
+        var products = document.querySelectorAll('.product-card');
+        var lastProduct = products[products.length - 1];
+        var target = lastProduct ? lastProduct.getBoundingClientRect().bottom + window.scrollY - window.innerHeight + 16 : document.documentElement.scrollHeight - window.innerHeight;
+        window.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    });
+    window.addEventListener('scroll', function () {
+        var showNavigation = window.scrollY > 220;
+        $('backToTop').classList.toggle('show', showNavigation);
+        $('backToBottom').classList.toggle('show', showNavigation);
+    }, { passive: true });
     window.addEventListener('resize', updateCustomScrollbar);
     setupCustomScrollbar();
     updateCustomScrollbar();
