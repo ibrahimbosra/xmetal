@@ -48,11 +48,16 @@
             <label class="search-box">
                 <span class="search-icon" aria-hidden="true">⌕</span>
                 <input id="productSearch" type="search" placeholder="ابحث عن منتج" autocomplete="off">
-                <span class="product-count" id="productCount">جاري تحميل المنتجات...</span>
             </label>
             <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل">السجل</button>
         </section>
 
+        <nav class="product-filters" id="productFilters" aria-label="تصفية المنتجات">
+            <button class="product-filter" type="button" data-product-filter="all"><span>كل المنتجات</span><span class="filter-count" data-filter-count="all">0</span></button>
+            <button class="product-filter active" type="button" data-product-filter="available"><span>المتوفر</span><span class="filter-count" data-filter-count="available">0</span></button>
+            <button class="product-filter" type="button" data-product-filter="expired"><span>المنتهية</span><span class="filter-count" data-filter-count="expired">0</span></button>
+        </nav>
+        <div class="search-summary" id="searchSummary" aria-live="polite" hidden></div>
         <section class="products-grid" id="productsGrid" aria-live="polite"></section>
         <div class="empty-state" id="productsEmpty" hidden>لا توجد منتجات متاحة</div>
     </main>
@@ -60,7 +65,7 @@
     <div class="modal-backdrop" id="saleModal" hidden>
         <section class="modal" role="dialog" aria-modal="true" aria-labelledby="saleModalTitle">
             <button class="close-button" data-close-modal="saleModal" type="button" aria-label="إغلاق">×</button>
-            <p class="eyebrow">تسجيل بيع</p>
+            <p class="eyebrow" id="saleModalEyebrow">تسجيل بيع</p>
             <h2 id="saleModalTitle">بيع منتج</h2>
             <p class="modal-product" id="saleProductName"></p>
             <form id="saleForm">
@@ -96,6 +101,7 @@
     <div class="toast" id="toast" role="status"></div>
     <button class="install-button" id="installButton" type="button">تثبيت التطبيق</button>
     <button class="back-to-top" id="backToTop" type="button" aria-label="العودة إلى أعلى المنتجات">↑</button>
+    <button class="back-to-bottom" id="backToBottom" type="button" aria-label="الانتقال إلى أسفل المنتجات">↓</button>
     <div class="custom-scrollbar" id="customScrollbar" role="scrollbar" aria-label="شريط تمرير الصفحة" aria-controls="appShell" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
         <div class="custom-scrollbar-thumb" id="customScrollbarThumb"></div>
     </div>
