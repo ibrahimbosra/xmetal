@@ -1104,6 +1104,10 @@
     });
     window.addEventListener('appinstalled', function () { $('installButton').style.display = 'none'; });
 
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('mobile-sales-sw.js').catch(function () {});
+    }
+
     window.addEventListener('online', function () {
         try { flushPendingSalesQueue(); } catch (error) { console.warn('Retry mobile-sales flush failed', error); }
     });
@@ -1117,5 +1121,4 @@
             if (Date.now() - lastSyncAt > 5 * 60 * 1000 && dataLoaded) startLiveListeners();
         }
     });
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('mobile-sales-sw.js').catch(function () {});
 }());
