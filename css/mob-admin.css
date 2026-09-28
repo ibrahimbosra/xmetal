@@ -41,7 +41,8 @@ input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-rad
 .location-edit-close { position: absolute; top: 8px; left: 10px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #f1f4f8; color: var(--muted); font-size: 1.4rem; line-height: 1; }
 .location-edit-content label { margin-top: 8px; }
 .location-edit-content input { min-height: 44px; }
-.location-edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+.location-edit-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 13px; }
+.location-edit-actions.is-create, .location-edit-actions.is-confirming-delete { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .location-edit-actions button { min-height: 43px; border-radius: 11px; font-size: .8rem; font-weight: 800; }
 .admin-edit-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 9px; }
 .location-edit-content > form > label { margin-top: 12px; }
@@ -59,6 +60,9 @@ input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-rad
 .admin-currency-input button:active { transform: scale(.96); }
 .location-edit-cancel { border: 1px solid var(--line); background: #fff; color: var(--muted); }
 .location-edit-save { border: 0; background: var(--blue); color: #fff; }
+.location-edit-delete, .location-edit-delete-confirm { border: 0; background: #b42318; color: #fff; }
+.location-edit-delete-cancel { border: 1px solid var(--line); background: #fff; color: var(--muted); }
+.location-edit-delete:disabled, .location-edit-delete-confirm:disabled, .location-edit-delete-cancel:disabled { opacity: .6; cursor: wait; }
 .location-edit-save:disabled { opacity: .6; cursor: wait; }
 .empty-state { padding: 54px 12px; color: var(--muted); text-align: center; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; align-items: end; background: rgba(15, 23, 42, .48); padding: 12px; } .modal { position: relative; z-index: 61; width: min(100%, 520px); max-height: 92dvh; margin: auto; overflow: auto; padding: 25px 18px 18px; border-radius: 22px; background: var(--surface); box-shadow: 0 20px 55px rgba(0,0,0,.2); } .modal h2 { margin: 2px 0 3px; font-size: 1.35rem; } .modal-product { margin-bottom: 18px; color: var(--muted); font-weight: 700; } .close-button { position: absolute; top: 10px; left: 12px; width: 38px; height: 38px; border: 0; border-radius: 50%; background: #f1f4f8; color: var(--muted); font-size: 1.5rem; line-height: 1; } .history-modal { height: min(92dvh, 720px); } .sales-history { display: grid; gap: 10px; margin-top: 17px; } .sale-record { padding: 14px; border: 1px solid var(--line); border-radius: 15px; background: #fbfcfe; } .sale-record h3 { margin: 0 0 6px; font-size: .94rem; } .sale-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .76rem; } .sale-total { margin: 8px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.7; font-weight: 700; } .sale-total span { font-weight: 800; } .sale-unit-value { color: var(--green); } .sale-quantity-value { color: #111827; } .sale-grand-total { color: var(--danger); } .record-actions { display: flex; gap: 8px; margin-top: 12px; } .record-actions button { flex: 1; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--blue); font-size: .78rem; font-weight: 800; } .record-actions .cancel-sale { color: var(--danger); }

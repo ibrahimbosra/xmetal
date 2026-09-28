@@ -99,9 +99,68 @@
             label.appendChild(profit);
         });
         document.body.appendChild(modal);
+        var actions = modal.querySelector('.location-edit-actions');
+        var cancelButton = modal.querySelector('.location-edit-cancel');
+        var saveButton = modal.querySelector('.location-edit-save');
+        var deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'location-edit-delete';
+        deleteButton.textContent = 'حذف';
+        actions.insertBefore(deleteButton, saveButton);
+        var cancelDeleteButton = document.createElement('button');
+        cancelDeleteButton.type = 'button';
+        cancelDeleteButton.className = 'location-edit-delete-cancel';
+        cancelDeleteButton.textContent = 'إلغاء الحذف';
+        cancelDeleteButton.hidden = true;
+        actions.insertBefore(cancelDeleteButton, cancelButton);
+        var confirmDeleteButton = document.createElement('button');
+        confirmDeleteButton.type = 'button';
+        confirmDeleteButton.className = 'location-edit-delete-confirm';
+        confirmDeleteButton.textContent = 'تأكيد الحذف';
+        confirmDeleteButton.hidden = true;
+        actions.insertBefore(confirmDeleteButton, cancelButton);
+        var setDeleteConfirmation = function (active) {
+            actions.classList.toggle('is-confirming-delete', active);
+            cancelButton.hidden = active;
+            deleteButton.hidden = active || modal.dataset.mode === 'create';
+            saveButton.hidden = active;
+            cancelDeleteButton.hidden = !active;
+            confirmDeleteButton.hidden = !active;
+        };
         var close = function () { modal.hidden = true; };
         modal.querySelector('.location-edit-close').addEventListener('click', close);
         modal.querySelector('.location-edit-cancel').addEventListener('click', close);
+        deleteButton.addEventListener('click', function () {
+            modal.querySelector('#locationEditError').textContent = '';
+            setDeleteConfirmation(true);
+        });
+        cancelDeleteButton.addEventListener('click', function () {
+            modal.querySelector('#locationEditError').textContent = '';
+            setDeleteConfirmation(false);
+        });
+        confirmDeleteButton.addEventListener('click', async function () {
+            var itemId = modal.dataset.itemId, error = modal.querySelector('#locationEditError');
+            if (!itemId || modal.dataset.mode !== 'edit') return;
+            error.textContent = '';
+            confirmDeleteButton.disabled = true;
+            cancelDeleteButton.disabled = true;
+            try {
+                await db.collection('items').doc(itemId).delete();
+                var itemIndex = items.findIndex(function (item) { return item.id === itemId; });
+                if (itemIndex !== -1) items.splice(itemIndex, 1);
+                saveCache();
+                modal.hidden = true;
+                setDeleteConfirmation(false);
+                renderProducts();
+                notify('تم حذف المنتج');
+            } catch (deleteError) {
+                error.textContent = 'تعذر حذف المنتج حاليًا';
+                console.error(deleteError);
+            } finally {
+                confirmDeleteButton.disabled = false;
+                cancelDeleteButton.disabled = false;
+            }
+        });
         modal.addEventListener('click', function (event) { if (event.target.hasAttribute('data-close-location-edit')) close(); });
         document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !modal.hidden) close(); });
         modal.querySelectorAll('[data-admin-currency-toggle]').forEach(function (button) {
@@ -190,6 +249,13 @@
         var content = modal.querySelector('.location-edit-content');
         modal.dataset.mode = 'edit';
         modal.dataset.itemId = item.id;
+        modal.querySelector('.location-edit-actions').classList.remove('is-create');
+        modal.querySelector('.location-edit-delete').hidden = false;
+        modal.querySelector('.location-edit-cancel').hidden = false;
+        modal.querySelector('.location-edit-save').hidden = false;
+        modal.querySelector('.location-edit-delete-cancel').hidden = true;
+        modal.querySelector('.location-edit-delete-confirm').hidden = true;
+        modal.querySelector('.location-edit-actions').classList.remove('is-confirming-delete');
         modal.querySelector('#locationEditEyebrow').hidden = false;
         modal.querySelector('#locationEditTitle').hidden = true;
         modal.querySelector('#locationEditEyebrow').textContent = 'تعديل بيانات المنتج';
@@ -224,6 +290,13 @@
         var modal = ensureLocationEditModal();
         modal.dataset.mode = 'create';
         modal.dataset.itemId = '';
+        modal.querySelector('.location-edit-actions').classList.add('is-create');
+        modal.querySelector('.location-edit-delete').hidden = true;
+        modal.querySelector('.location-edit-cancel').hidden = false;
+        modal.querySelector('.location-edit-save').hidden = false;
+        modal.querySelector('.location-edit-delete-cancel').hidden = true;
+        modal.querySelector('.location-edit-delete-confirm').hidden = true;
+        modal.querySelector('.location-edit-actions').classList.remove('is-confirming-delete');
         modal.querySelector('#locationEditEyebrow').hidden = true;
         modal.querySelector('#locationEditEyebrow').textContent = 'إضافة منتج';
         modal.querySelector('#locationEditTitle').textContent = 'إضافة منتج';
