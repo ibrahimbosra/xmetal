@@ -138,7 +138,6 @@
         requestAnimationFrame(function () {
             content.style.top = '';
             content.style.left = '';
-            modal.querySelector('#locationEditInput').focus();
         });
     }
 

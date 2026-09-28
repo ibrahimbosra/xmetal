@@ -35,6 +35,7 @@ input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-rad
 .location-edit-modal[hidden] { display: none; }
 .location-edit-backdrop { position: absolute; inset: 0; pointer-events: auto; }
 .location-edit-content { position: absolute; z-index: 1; top: 24px !important; right: 24px; bottom: 24px; left: 24px; width: auto; min-height: 0; overflow: auto; padding: 28px 18px 18px; border: 1px solid rgba(36,117,210,.16); border-radius: 16px; background: var(--surface); box-shadow: 0 10px 28px rgba(15,23,42,.2); pointer-events: auto; }
+.location-edit-content { top: 50% !important; bottom: auto; max-height: calc(100dvh - 48px); transform: translateY(-50%); }
 .location-edit-content h2 { margin: 2px 0 2px; font-size: 1.15rem; }
 .location-edit-product { margin: 0 0 12px; color: var(--muted); font-size: .78rem; font-weight: 700; }
 .location-edit-close { position: absolute; top: 8px; left: 10px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #f1f4f8; color: var(--muted); font-size: 1.4rem; line-height: 1; }

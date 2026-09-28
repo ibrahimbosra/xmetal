@@ -217,7 +217,6 @@
         requestAnimationFrame(function () {
             content.style.top = '';
             content.style.left = '';
-            modal.querySelector('#adminProductName').focus();
         });
     }
 
@@ -238,17 +237,17 @@
         modal.dataset.purchaseCurrency = 'primary';
         modal.dataset.saleCurrency = 'secondary';
         modal.dataset.mechanicCurrency = 'secondary';
-        modal.querySelector('#adminPurchasePrice').value = 0;
-        modal.querySelector('#adminSalePrice').value = 0;
-        modal.querySelector('#adminMechanicPrice').value = 0;
-        modal.querySelector('#adminQuantity').value = 0;
+        modal.querySelector('#adminPurchasePrice').value = '';
+        modal.querySelector('#adminSalePrice').value = '';
+        modal.querySelector('#adminMechanicPrice').value = '';
+        modal.querySelector('#adminQuantity').value = '';
         modal.querySelector('#adminPurchaseCurrencyLabel').textContent = '$';
         modal.querySelector('#adminSaleCurrencyLabel').textContent = currency.secondaryCurrencySymbol;
         modal.querySelector('#adminMechanicCurrencyLabel').textContent = currency.secondaryCurrencySymbol;
         modal.querySelector('#locationEditError').textContent = '';
         updateAdminProfitLabels(modal);
         modal.hidden = false;
-        requestAnimationFrame(function () { modal.querySelector('#adminProductName').focus(); });
+        requestAnimationFrame(function () {});
     }
 
     function notify(message) {
