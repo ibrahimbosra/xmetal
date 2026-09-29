@@ -47,6 +47,7 @@
     var secondary = function (primary) { return (Number(primary) || 0) * (Number(currency.exchangeRate) || 1); };
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
     var money = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
+    var price = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value) || 0); };
     function timestampValue(timestamp) {
         if (timestamp && typeof timestamp.toMillis === 'function') return timestamp.toMillis();
         if (timestamp && Number.isFinite(Number(timestamp.seconds))) return Number(timestamp.seconds) * 1000 + (Number(timestamp.nanoseconds) || 0) / 1000000;
@@ -376,8 +377,8 @@
                 '<h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
                 '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong>' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
-                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + money(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
-                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + money(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + price(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '</div>';
             }
             $('productsGrid').appendChild(element);
@@ -445,8 +446,8 @@
         }
         var total = number($('salePrice').value) || 0;
         var unit = quantity > 0 ? total / quantity : 0;
-        $('saleUnitPrice').value = money(unit) + ' ' + currency.secondaryCurrencySymbol;
-        $('calculatedTotal').textContent = 'الإجمالي: ' + money(total) + ' ' + currency.secondaryCurrencySymbol;
+        $('saleUnitPrice').value = price(unit) + ' ' + currency.secondaryCurrencySymbol;
+        $('calculatedTotal').textContent = 'الإجمالي: ' + price(total) + ' ' + currency.secondaryCurrencySymbol;
         updateQuickQuantityState();
         updateQuantityWarning();
     }
@@ -466,7 +467,7 @@
 
     function warningText(info) {
         var referenceName = info.type === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي';
-        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + money(secondary(info.reference)) + ' ' + currency.secondaryCurrencySymbol;
+        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + price(secondary(info.reference)) + ' ' + currency.secondaryCurrencySymbol;
     }
 
     function upsertSaleLocally(sale) {
@@ -639,7 +640,7 @@
             var currentDay = dayKey(sale.timestamp);
             if (currentDay !== previousDay) {
                 dayNumber = dayStats[currentDay].count;
-                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong><span class="day-total">إجمالي مبيعات اليوم: ' + money(dayStats[currentDay].total) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></div>';
+                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong><span class="day-total">إجمالي مبيعات اليوم: ' + price(dayStats[currentDay].total) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></div>';
                 previousDay = currentDay;
             }
             var warningBadge = sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? '<button type="button" class="warning-badge ' + esc(sale.priceWarningLevel) + '" data-warning-sale="' + esc(sale.saleId) + '" aria-label="عرض سبب التنبيه">!</button>' : '';
@@ -647,7 +648,7 @@
             var saleModeClass = sale.saleMode === 'base' ? ' sale-mode-base' : (sale.saleMode === 'mechanic' ? ' sale-mode-mechanic' : '');
             html += '<article class="sale-record' + saleModeClass + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? ' has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number" aria-label="رقم العملية">' + dayNumber + '</div><h3>' + esc(sale.itemName || 'منتج') + warningBadge + '</h3>' +
                 '<div class="sale-meta"><span>' + esc(date(sale.timestamp)) + '</span><span>البائع: ' + esc(sellerLabel) + '</span><span>الكمية: ' + money(sale.quantity) + '</span></div>' +
-                '<p class="sale-total">سعر القطعة: <span class="sale-unit-value">' + money(secondary(sale.unitPrice)) + '</span> × الكمية: <span class="sale-quantity-value">' + money(sale.quantity) + '</span> = الإجمالي: <span class="sale-grand-total">' + money(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></p>' +
+                '<p class="sale-total">سعر القطعة: <span class="sale-unit-value">' + price(secondary(sale.unitPrice)) + '</span> × الكمية: <span class="sale-quantity-value">' + money(sale.quantity) + '</span> = الإجمالي: <span class="sale-grand-total">' + price(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></p>' +
                 '<div class="record-actions"><button type="button" data-edit-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
                 '<button type="button" class="cancel-sale" data-cancel-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
             dayNumber -= 1;
