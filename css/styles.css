@@ -2471,3 +2471,69 @@ tr:hover td {
         padding: 16px;
     }
 }
+
+.bulk-pricing-header,
+.bulk-pricing-toolbar,
+.bulk-pricing-editor-heading,
+.bulk-pricing-preview-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.bulk-pricing-header { margin-bottom: 16px; }
+.bulk-pricing-header h2,
+.bulk-pricing-editor h3,
+.bulk-pricing-preview h3 { margin: 0; }
+.bulk-pricing-header p,
+.bulk-pricing-rate-note,
+.bulk-pricing-preview-more { color: var(--text3); margin: 4px 0 0; font-size: 0.85rem; }
+.bulk-pricing-sort { display: flex; align-items: center; gap: 8px; color: var(--text2); white-space: nowrap; }
+.bulk-pricing-sort select,
+.bulk-pricing-search input,
+.bulk-pricing-edit-field input { min-height: 42px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.bulk-pricing-toolbar { justify-content: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
+.bulk-pricing-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px; max-width: 480px; color: var(--text3); }
+.bulk-pricing-search input { width: 100%; }
+.bulk-pricing-selection-count { margin-inline-start: auto; color: var(--text2); font-weight: 700; }
+.bulk-pricing-groups { display: grid; gap: 8px; }
+.bulk-price-group { border-bottom: 1px solid var(--border); background: var(--surface); }
+.bulk-price-group-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 4px; }
+.bulk-price-group-toggle { display: flex; align-items: center; gap: 10px; min-width: 0; border: 0; background: transparent; color: var(--text); text-align: start; cursor: pointer; font: inherit; }
+.bulk-price-group-title { font-weight: 800; direction: ltr; unicode-bidi: isolate; }
+.bulk-price-group-count { color: var(--text3); font-size: 0.85rem; }
+.bulk-price-group-select { display: inline-flex; align-items: center; gap: 7px; color: var(--text2); white-space: nowrap; font-size: 0.83rem; }
+.bulk-price-products { border-top: 1px solid var(--border); }
+.bulk-price-product { display: grid; grid-template-columns: auto minmax(120px, 1fr) repeat(3, minmax(130px, 0.7fr)); align-items: center; gap: 12px; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.bulk-price-product:last-child { border-bottom: 0; }
+.bulk-price-product-name { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+.bulk-price-value { color: var(--text2); font-size: 0.84rem; }
+.bulk-price-value span { display: block; color: var(--text3); font-size: 0.75rem; }
+.bulk-price-empty { padding: 24px 8px; color: var(--text3); text-align: center; }
+.bulk-pricing-editor,
+.bulk-pricing-preview { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.bulk-pricing-edit-grid { display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr); gap: 12px 20px; max-width: 760px; margin: 14px 0; }
+.bulk-pricing-edit-option { display: flex; align-items: center; gap: 9px; font-weight: 700; }
+.bulk-pricing-edit-field { display: grid; gap: 6px; color: var(--text2); }
+.bulk-pricing-edit-field input:disabled { opacity: 0.55; }
+.bulkPricingCurrencySymbol { color: var(--text3); }
+.bulk-pricing-rate-note { margin: 10px 0 14px; }
+.bulk-pricing-message { margin: 12px 0; color: var(--danger); }
+.bulk-pricing-preview-summary { margin: 12px 0; line-height: 1.8; color: var(--text2); }
+.bulk-pricing-preview-table-wrap { overflow-x: auto; }
+.bulk-pricing-preview-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+.bulk-pricing-preview-table th,
+.bulk-pricing-preview-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: start; }
+.bulk-pricing-preview-table th { color: var(--text3); font-size: 0.82rem; }
+.bulk-pricing-preview-actions { justify-content: flex-end; margin-top: 14px; }
+.bulk-pricing-nav[hidden] { display: none; }
+@media (max-width: 700px) {
+    .bulk-pricing-header { align-items: flex-start; flex-direction: column; }
+    .bulk-pricing-toolbar { align-items: stretch; }
+    .bulk-pricing-selection-count { margin-inline-start: 0; }
+    .bulk-price-product { grid-template-columns: auto minmax(0, 1fr); gap: 7px 10px; }
+    .bulk-price-product-name { grid-column: 2; }
+    .bulk-price-value { grid-column: 2; }
+    .bulk-pricing-edit-grid { grid-template-columns: 1fr; }
+    .bulk-pricing-editor-heading { align-items: flex-start; flex-direction: column; }
+}

@@ -322,6 +322,11 @@ function buildSaleObject(item, qty, price, currency, purchasePriceAtTime) {
 let allSalesFullLoaded = false;
 let currencySettings = { secondaryCurrencyName: 'ريال سعودي', secondaryCurrencySymbol: '﷼', exchangeRate: 3.75,
     defaultInputCurrency: 'primary', defaultSellCurrency: 'primary', enablePurchaseBatches: false };
+let bulkPricingSortOrder = 'asc';
+let bulkPricingExpandedGroups = new Set();
+let bulkPricingSelectedIds = new Set();
+let bulkPricingPreviewState = null;
+let bulkPricingSaveInProgress = false;
 let userDisplayNameSettings = {};
 let storeInfoData = {};
 let currentSection = 'dashboard';
@@ -1663,6 +1668,9 @@ function getExpensesSum(start, end) { start = start || 0;
             end; }).reduce(function(a, e) { return a + (e.amount || 0); }, 0); }
 function convertToSecondary(a) { return a * currencySettings.exchangeRate; }
 function convertToPrimary(a) { return a / currencySettings.exchangeRate; }
+function convertProductPriceToSecondary(a) {
+    return window.PriceHelpers && window.PriceHelpers.getSecondaryPrice ? window.PriceHelpers.getSecondaryPrice(a, currencySettings.exchangeRate) : convertToSecondary(a);
+}
 function getConversionDisplay(value, isInputSecondary, symbol) {
     if (isInputSecondary) { return fmtMoney(value) + ' ' + symbol + ' (≈ $' + fmtMoney(convertToPrimary(value)) + ')'; }
     return fmtMoney(convertToSecondary(value)) + ' ' + symbol;
@@ -1688,8 +1696,8 @@ function updateProductPriceDisplay() {
     var mEl = document.getElementById('mechanicPriceSecondary');
     var hintEl = document.getElementById('mechanicPriceHint');
     if (pEl) pEl.innerText = getConversionDisplay(p, tempPurchaseCurrency, sym);
-    if (sEl) sEl.innerText = getConversionDisplay(s, tempSaleCurrency, sym);
-    if (mEl) mEl.innerText = getConversionDisplay(mechanicDisplayValue, tempMechanicCurrency, sym);
+    if (sEl) sEl.innerText = tempSaleCurrency ? getConversionDisplay(s, true, sym) : fmtMoney(convertProductPriceToSecondary(s)) + ' ' + sym;
+    if (mEl) mEl.innerText = tempMechanicCurrency ? getConversionDisplay(mechanicDisplayValue, true, sym) : fmtMoney(convertProductPriceToSecondary(mechanicDisplayValue)) + ' ' + sym;
     if (hintEl) {
         var helperText = '';
         if (p > 0 && mechanicDisplayValue > 0) {
@@ -1758,6 +1766,10 @@ if (sidebarBackdrop) {
 document.querySelectorAll('#sidebarNav button').forEach(function(btn) {
     btn.addEventListener('click', function(event) {
         event.stopPropagation();
+        if (btn.dataset.section === 'bulkPricing' && (!window.permissionManager || !window.permissionManager.canAccessSection('bulkPricing'))) {
+            showToast('لا تملك صلاحية تعديل أسعار المنتجات');
+            return;
+        }
         document.querySelectorAll('#sidebarNav button').forEach(function(b) {
             b.classList.remove('active');
         });
@@ -1868,6 +1880,10 @@ document.getElementById('doLoginBtn').addEventListener('click', function() {
 
 auth.onAuthStateChanged(async function(user) {
     if (user) {
+        var currentRole = user.role || (window.appState && appState.user ? appState.user.role : null);
+        if (window.permissionManager && currentRole) permissionManager.setUserRole(currentRole);
+        var bulkPricingNavButton = document.getElementById('bulkPricingNavButton');
+        if (bulkPricingNavButton) bulkPricingNavButton.hidden = !window.permissionManager || !permissionManager.canAccessSection('bulkPricing');
         document.getElementById('loginOverlay').classList.add('hidden');
         await initApp();
     } else {
@@ -1938,6 +1954,10 @@ function attachRealtimeListeners() {
                 // refresh UI sections that depend on items
                 if (document.getElementById('itemsList')) renderInventory();
                 if (currentSection === 'dashboard' || currentSection === 'profitAnalysis' || currentSection === 'insights' || currentSection === 'aiAssistant') renderCurrentSection();
+                if (currentSection === 'bulkPricing') {
+                    if (!bulkPricingSaveInProgress) invalidateBulkPricingPreview();
+                    renderBulkPricingSection();
+                }
                 // update any open modals that reference item quantities
                 refreshOpenModals();
                 document.getElementById('lastUpdatedLabel').textContent = 'آخر تحديث: ' + fmtDateTime(Date.now());
@@ -1961,6 +1981,10 @@ function attachRealtimeListeners() {
                     updateSellPriceDisplay();
                     updateEditSalePriceDisplay();
                     if (currentSection === 'inventory' || currentSection === 'dashboard' || currentSection === 'aiAssistant') renderCurrentSection();
+                    if (currentSection === 'bulkPricing') {
+                        invalidateBulkPricingPreview();
+                        renderBulkPricingSection();
+                    }
                 }
             } catch (e) { console.warn('currency onSnapshot handler error', e); }
         });
@@ -1994,7 +2018,7 @@ function refreshOpenModals() {
                 if (el) el.max = sItem.quantity;
                 var priceEl = document.getElementById('sellPrice');
                 if (priceEl && sItem.salePrice != null) {
-                    priceEl.value = tempSellCurrency ? fmtMoney(convertToSecondary(sItem.salePrice)) : fmtMoney(sItem.salePrice);
+                    priceEl.value = tempSellCurrency ? fmtMoney(convertProductPriceToSecondary(sItem.salePrice)) : fmtMoney(sItem.salePrice);
                     updateSellPriceDisplay();
                 }
             }
@@ -2338,6 +2362,9 @@ function renderCurrentSection() {
                 break;
             case 'inventory':
                 renderInventory();
+                break;
+            case 'bulkPricing':
+                renderBulkPricingSection();
                 break;
             case 'addItem':
                 prepareAddItemForm();
@@ -2720,8 +2747,8 @@ function renderInventory() {
         var profitClass = profit >= 0 ? 'profit-positive' : 'profit-negative';
         var mechanicPrice = window.PriceHelpers && window.PriceHelpers.getMechanicDisplayPrice ? window.PriceHelpers.getMechanicDisplayPrice(item) : (item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : item.salePrice);
         var pSec = fmtMoney(convertToSecondary(item.purchasePrice)),
-            sSec = fmtMoney(convertToSecondary(item.salePrice)),
-            mSec = fmtMoney(convertToSecondary(mechanicPrice));
+            sSec = fmtMoney(convertProductPriceToSecondary(item.salePrice)),
+            mSec = fmtMoney(convertProductPriceToSecondary(mechanicPrice));
         var showItemDetails = !!itemVisibility[item.id];
         var showMechanicDetails = showMechanicPricesGlobally;
         var cardClass = item.quantity === 0 ? 'out-of-stock' : (item.quantity <= 2 ? 'low-stock' : '');
@@ -2765,6 +2792,294 @@ function renderInventory() {
         itemVisibility[id] = !itemVisibility[id];
         renderInventory(); }); });
 }
+
+function getBulkPricingVisibleGroups() {
+    var query = (document.getElementById('bulkPricingSearch').value || '').trim().toLowerCase();
+    var groups = window.PriceHelpers && window.PriceHelpers.groupItemsByPurchasePrice ? window.PriceHelpers.groupItemsByPurchasePrice(allItems) : [];
+    groups.forEach(function(group) {
+        group.items = group.items.filter(function(item) { return !query || String(item.name || '').toLowerCase().includes(query); });
+    });
+    groups = groups.filter(function(group) { return group.items.length > 0; });
+    groups.sort(function(a, b) {
+        if (a.purchasePrice === null) return b.purchasePrice === null ? 0 : 1;
+        if (b.purchasePrice === null) return -1;
+        return bulkPricingSortOrder === 'desc' ? b.purchasePrice - a.purchasePrice : a.purchasePrice - b.purchasePrice;
+    });
+    return groups;
+}
+
+function getBulkPricingSelectedItems() {
+    return allItems.filter(function(item) { return bulkPricingSelectedIds.has(String(item.id)); });
+}
+
+function bulkPricingGroupToken(price) {
+    return price === null ? 'missing' : String(price);
+}
+
+function formatBulkPrimaryPrice(value) {
+    var amount = Number(value);
+    return Number.isFinite(amount) ? '$' + new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 20 }).format(amount) : 'غير محدد';
+}
+
+function bulkPricingCountLabel(count) {
+    if (count === 1) return '1 منتج';
+    if (count === 2) return '2 منتجان';
+    if (count >= 3 && count <= 10) return count + ' منتجات';
+    return count + ' منتجًا';
+}
+
+function formatBulkSecondaryPrice(primaryPrice) {
+    var value = window.PriceHelpers && window.PriceHelpers.getSecondaryPrice ? window.PriceHelpers.getSecondaryPrice(primaryPrice, currencySettings.exchangeRate) : convertToSecondary(primaryPrice);
+    return value === null ? '—' : fmtMoney(value) + ' ' + currencySettings.secondaryCurrencySymbol;
+}
+
+function renderBulkPricingGroups() {
+    var container = document.getElementById('bulkPricingGroups');
+    if (!container) return;
+    var groups = getBulkPricingVisibleGroups();
+    if (!groups.length) {
+        container.innerHTML = '<div class="bulk-price-empty">لا توجد منتجات مطابقة.</div>';
+        return;
+    }
+    container.innerHTML = groups.map(function(group) {
+        var token = bulkPricingGroupToken(group.purchasePrice);
+        var selectedCount = group.items.filter(function(item) { return bulkPricingSelectedIds.has(String(item.id)); }).length;
+        var expanded = bulkPricingExpandedGroups.has(token);
+        var groupTitle = group.purchasePrice === null ? 'سعر شراء غير محدد' : formatBulkPrimaryPrice(group.purchasePrice);
+        var productRows = group.items.map(function(item) {
+            var itemId = String(item.id);
+            var purchasePrimary = item.purchasePrice !== null && item.purchasePrice !== undefined && item.purchasePrice !== '' ? formatBulkPrimaryPrice(item.purchasePrice) : 'غير محدد';
+            var hasMechanicPrice = item.mechanicPrice !== null && item.mechanicPrice !== undefined && item.mechanicPrice !== '' && Number.isFinite(Number(item.mechanicPrice));
+            var mechanicPrimary = hasMechanicPrice ? formatBulkPrimaryPrice(item.mechanicPrice) : 'غير مسجل';
+            var mechanicSecondary = hasMechanicPrice ? formatBulkSecondaryPrice(Number(item.mechanicPrice)) : 'غير مسجل';
+            var salePrimary = item.salePrice !== null && item.salePrice !== undefined && item.salePrice !== '' ? formatBulkPrimaryPrice(item.salePrice) : 'غير محدد';
+            var saleSecondary = item.salePrice !== null && item.salePrice !== undefined && item.salePrice !== '' ? formatBulkSecondaryPrice(Number(item.salePrice)) : 'غير محدد';
+            return '<label class="bulk-price-product"><input type="checkbox" data-bulk-product-id="' + escHtml(itemId) + '" ' + (bulkPricingSelectedIds.has(itemId) ? 'checked' : '') + '><span class="bulk-price-product-name">' + escHtml(item.name || 'منتج') + '</span><span class="bulk-price-value"><span>سعر الشراء</span>' + purchasePrimary + '</span><span class="bulk-price-value"><span>الزبون الأساسي</span>' + salePrimary + '<span>بالليرة</span>' + saleSecondary + '</span><span class="bulk-price-value"><span>الميكانيكي الأساسي</span>' + mechanicPrimary + '<span>بالليرة</span>' + mechanicSecondary + '</span></label>';
+        }).join('');
+        return '<section class="bulk-price-group"><div class="bulk-price-group-header"><button class="bulk-price-group-toggle" type="button" data-bulk-toggle-group="' + escHtml(token) + '" aria-expanded="' + expanded + '"><span class="bulk-price-group-title">' + escHtml(groupTitle) + '</span><span class="bulk-price-group-count">' + bulkPricingCountLabel(group.items.length) + '</span><i class="fas fa-chevron-' + (expanded ? 'up' : 'down') + '" aria-hidden="true"></i></button><label class="bulk-price-group-select"><input type="checkbox" data-bulk-select-group="' + escHtml(token) + '" ' + (selectedCount === group.items.length ? 'checked' : '') + '> تحديد المجموعة</label></div><div class="bulk-price-products" ' + (expanded ? '' : 'hidden') + '>' + productRows + '</div></section>';
+    }).join('');
+    container.querySelectorAll('[data-bulk-select-group]').forEach(function(input) {
+        var token = input.dataset.bulkSelectGroup;
+        var group = groups.find(function(entry) { return bulkPricingGroupToken(entry.purchasePrice) === token; });
+        if (!group) return;
+        var selectedCount = group.items.filter(function(item) { return bulkPricingSelectedIds.has(String(item.id)); }).length;
+        input.indeterminate = selectedCount > 0 && selectedCount < group.items.length;
+    });
+}
+
+function invalidateBulkPricingPreview() {
+    bulkPricingPreviewState = null;
+    var preview = document.getElementById('bulkPricingPreview');
+    if (preview) preview.hidden = true;
+}
+
+function renderBulkPricingSection() {
+    var editor = document.getElementById('bulkPricingEditor');
+    if (!editor) return;
+    if (!bulkPricingSaveInProgress && isBulkPricingPreviewStale(bulkPricingPreviewState)) invalidateBulkPricingPreview();
+    var availableIds = new Set(allItems.map(function(item) { return String(item.id); }));
+    Array.from(bulkPricingSelectedIds).forEach(function(id) { if (!availableIds.has(id)) bulkPricingSelectedIds.delete(id); });
+    var selectedItems = getBulkPricingSelectedItems();
+    document.getElementById('bulkPricingSelectionCount').textContent = 'المحدد: ' + bulkPricingCountLabel(selectedItems.length);
+    document.getElementById('bulkPricingClearSelection').disabled = selectedItems.length === 0;
+    editor.hidden = selectedItems.length === 0;
+    document.getElementById('bulkPricingEditorCount').textContent = bulkPricingCountLabel(selectedItems.length);
+    document.getElementById('bulkPricingExchangeRate').textContent = fmtMoney(currencySettings.exchangeRate);
+    document.querySelectorAll('.bulkPricingCurrencySymbol').forEach(function(el) { el.textContent = currencySettings.secondaryCurrencySymbol; });
+    var sortSelect = document.getElementById('bulkPricingSort');
+    if (sortSelect) sortSelect.value = bulkPricingSortOrder;
+    renderBulkPricingGroups();
+}
+
+function showBulkPricingMessage(message) {
+    var element = document.getElementById('bulkPricingMessage');
+    if (!element) return;
+    element.textContent = message || '';
+    element.hidden = !message;
+}
+
+function sameBulkPriceValue(left, right) {
+    return left === right || ((left === null || left === undefined || left === '') && (right === null || right === undefined || right === ''));
+}
+
+function isBulkPricingPreviewStale(preview) {
+    if (!preview) return false;
+    if (Number(currencySettings.exchangeRate) !== preview.rate) return true;
+    var currentById = new Map(allItems.map(function(item) { return [String(item.id), item]; }));
+    return preview.changes.some(function(change) {
+        var item = currentById.get(change.id);
+        return !item || !sameBulkPriceValue(item.salePrice, change.originalSalePrice) || !sameBulkPriceValue(item.mechanicPrice, change.originalMechanicPrice);
+    });
+}
+
+function renderBulkPricingPreview() {
+    var selectedItems = getBulkPricingSelectedItems();
+    var rate = Number(currencySettings.exchangeRate);
+    var updateCustomer = document.getElementById('bulkUpdateCustomer').checked;
+    var updateMechanic = document.getElementById('bulkUpdateMechanic').checked;
+    var customerInput = document.getElementById('bulkCustomerPrice').value;
+    var mechanicInput = document.getElementById('bulkMechanicPrice').value;
+    if (!selectedItems.length) return showBulkPricingMessage('حدد منتجًا واحدًا على الأقل.');
+    if (!updateCustomer && !updateMechanic) return showBulkPricingMessage('فعّل سعرًا واحدًا على الأقل للتعديل.');
+    if (!Number.isFinite(rate) || rate <= 0) return showBulkPricingMessage('سعر الصرف الحالي غير صالح.');
+    if (updateCustomer && (customerInput.trim() === '' || !Number.isFinite(Number(customerInput)) || Number(customerInput) < 0)) return showBulkPricingMessage('أدخل سعر زبون صالحًا.');
+    if (updateMechanic && (mechanicInput.trim() === '' || !Number.isFinite(Number(mechanicInput)) || Number(mechanicInput) < 0)) return showBulkPricingMessage('أدخل سعر ميكانيكي صالحًا.');
+    if (!window.permissionManager || !permissionManager.hasPermission('inventory.edit')) return showBulkPricingMessage('لا تملك صلاحية تعديل أسعار المنتجات.');
+
+    var purchasePrices = Array.from(new Set(selectedItems.map(function(item) {
+        return item.purchasePrice !== null && item.purchasePrice !== undefined && item.purchasePrice !== '' && Number.isFinite(Number(item.purchasePrice)) ? Number(item.purchasePrice) : null;
+    }))).sort(function(a, b) { return a === null ? 1 : (b === null ? -1 : a - b); });
+    var purchaseSummary = purchasePrices.length === 1 ? 'سعر الشراء للمجموعة: ' + (purchasePrices[0] === null ? 'غير محدد' : formatBulkPrimaryPrice(purchasePrices[0])) : 'أسعار الشراء للمجموعات المحددة: ' + purchasePrices.map(function(price) { return price === null ? 'غير محدد' : formatBulkPrimaryPrice(price); }).join('، ');
+    var customerSecondary = updateCustomer ? Number(customerInput) : null;
+    var mechanicSecondary = updateMechanic ? Number(mechanicInput) : null;
+    var changes = selectedItems.map(function(item) {
+        var updates = {};
+        if (updateCustomer) {
+            var salePrice = customerSecondary / rate;
+            if (!sameBulkPriceValue(item.salePrice, salePrice)) updates.salePrice = salePrice;
+        }
+        if (updateMechanic) {
+            var mechanicPrice = mechanicSecondary / rate;
+            if (!sameBulkPriceValue(item.mechanicPrice, mechanicPrice)) updates.mechanicPrice = mechanicPrice;
+        }
+        return { id: String(item.id), name: item.name || 'منتج', originalSalePrice: item.salePrice, originalMechanicPrice: item.mechanicPrice, updates: updates };
+    });
+    var changeCount = changes.filter(function(change) { return Object.keys(change.updates).length > 0; }).length;
+    bulkPricingPreviewState = { rate: rate, customerEnabled: updateCustomer, mechanicEnabled: updateMechanic, customerSecondary: customerSecondary, mechanicSecondary: mechanicSecondary, changes: changes };
+    document.getElementById('bulkPricingPreviewCount').textContent = bulkPricingCountLabel(selectedItems.length);
+    document.getElementById('bulkPricingPreviewSummary').innerHTML = '<div>سيتم فحص ' + bulkPricingCountLabel(selectedItems.length) + '.</div><div>' + escHtml(purchaseSummary) + '</div><div>سعر الصرف الحالي: ' + fmtMoney(rate) + '</div>' + (updateCustomer ? '<div>سعر الزبون الجديد: ' + fmtMoney(customerSecondary) + ' ' + escHtml(currencySettings.secondaryCurrencySymbol) + '</div>' : '') + (updateMechanic ? '<div>سعر الميكانيكي الجديد: ' + fmtMoney(mechanicSecondary) + ' ' + escHtml(currencySettings.secondaryCurrencySymbol) + '</div>' : '') + (changeCount ? '<div>المنتجات التي ستتغير: ' + bulkPricingCountLabel(changeCount) + '</div>' : '<div>الأسعار المحددة مطابقة للقيم الحالية؛ لن تُكتب أي مستندات.</div>');
+    var previewLimit = 10;
+    document.getElementById('bulkPricingPreviewRows').innerHTML = changes.slice(0, previewLimit).map(function(change) {
+        var item = allItems.find(function(entry) { return String(entry.id) === change.id; });
+        var purchase = item && item.purchasePrice !== null && item.purchasePrice !== undefined && item.purchasePrice !== '' ? formatBulkPrimaryPrice(item.purchasePrice) : 'غير محدد';
+        var oldSale = item && item.salePrice !== null && item.salePrice !== undefined ? formatBulkSecondaryPrice(Number(item.salePrice)) : 'غير محدد';
+        var oldMechanic = item && item.mechanicPrice !== null && item.mechanicPrice !== undefined && item.mechanicPrice !== '' ? formatBulkSecondaryPrice(Number(item.mechanicPrice)) : 'غير مسجل';
+        var newSale = updateCustomer ? fmtMoney(customerSecondary) + ' ' + currencySettings.secondaryCurrencySymbol : oldSale;
+        var newMechanic = updateMechanic ? fmtMoney(mechanicSecondary) + ' ' + currencySettings.secondaryCurrencySymbol : oldMechanic;
+        return '<tr><td>' + escHtml(change.name) + '</td><td>' + escHtml(purchase) + '</td><td>' + escHtml(oldSale) + ' ← ' + escHtml(newSale) + '</td><td>' + escHtml(oldMechanic) + ' ← ' + escHtml(newMechanic) + '</td></tr>';
+    }).join('');
+    var more = document.getElementById('bulkPricingPreviewMore');
+    more.hidden = changes.length <= previewLimit;
+    more.textContent = changes.length > previewLimit ? 'عُرضت أول ' + previewLimit + ' منتجات من أصل ' + bulkPricingCountLabel(changes.length) + ' ستتغير.' : '';
+    document.getElementById('bulkPricingConfirm').disabled = changeCount === 0;
+    document.getElementById('bulkPricingPreview').hidden = false;
+    showBulkPricingMessage('');
+}
+
+async function confirmBulkPricingUpdate() {
+    var preview = bulkPricingPreviewState;
+    if (!preview) return;
+    if (!window.permissionManager || !permissionManager.hasPermission('inventory.edit')) return showBulkPricingMessage('لا تملك صلاحية تعديل أسعار المنتجات.');
+    if (Number(currencySettings.exchangeRate) !== preview.rate) {
+        invalidateBulkPricingPreview();
+        renderBulkPricingSection();
+        return showBulkPricingMessage('تغير سعر الصرف؛ أعد معاينة التعديل قبل الحفظ.');
+    }
+    if (isBulkPricingPreviewStale(preview)) {
+        invalidateBulkPricingPreview();
+        renderBulkPricingSection();
+        return showBulkPricingMessage('تغيرت بيانات أحد المنتجات منذ المعاينة؛ راجع الأسعار وأعد المعاينة.');
+    }
+    var updates = preview.changes.filter(function(change) { return Object.keys(change.updates).length > 0; });
+    if (!updates.length) return showBulkPricingMessage('لا توجد تغييرات لحفظها.');
+    var button = document.getElementById('bulkPricingConfirm');
+    button.disabled = true;
+    var committed = 0;
+    bulkPricingSaveInProgress = true;
+    try {
+        for (var offset = 0; offset < updates.length; offset += 500) {
+            var chunk = updates.slice(offset, offset + 500);
+            var batch = db.batch();
+            chunk.forEach(function(change) {
+                batch.update(db.collection('items').doc(change.id), change.updates);
+            });
+            await batch.commit();
+            committed += chunk.length;
+        }
+        bulkPricingSelectedIds.clear();
+        bulkPricingExpandedGroups.clear();
+        document.getElementById('bulkUpdateCustomer').checked = false;
+        document.getElementById('bulkUpdateMechanic').checked = false;
+        document.getElementById('bulkCustomerPrice').value = '';
+        document.getElementById('bulkMechanicPrice').value = '';
+        document.getElementById('bulkCustomerPrice').disabled = true;
+        document.getElementById('bulkMechanicPrice').disabled = true;
+        invalidateBulkPricingPreview();
+        renderBulkPricingSection();
+        showBulkPricingMessage('تم تحديث أسعار ' + bulkPricingCountLabel(committed) + '.');
+        showToast('تم تحديث أسعار ' + bulkPricingCountLabel(committed));
+    } catch (error) {
+        invalidateBulkPricingPreview();
+        renderBulkPricingSection();
+        showBulkPricingMessage(committed ? 'تعذر إكمال العملية بعد تحديث ' + bulkPricingCountLabel(committed) + '. راجع القائمة وأعد معاينة الباقي.' : 'تعذر حفظ الأسعار؛ لم يكتمل أي تحديث.');
+        console.error('Bulk pricing batch failed', error);
+    } finally {
+        bulkPricingSaveInProgress = false;
+        button.disabled = false;
+    }
+}
+
+function attachBulkPricingEvents() {
+    var groups = document.getElementById('bulkPricingGroups');
+    groups.addEventListener('click', function(event) {
+        var toggle = event.target.closest('[data-bulk-toggle-group]');
+        if (!toggle) return;
+        var token = toggle.dataset.bulkToggleGroup;
+        if (bulkPricingExpandedGroups.has(token)) bulkPricingExpandedGroups.delete(token);
+        else bulkPricingExpandedGroups.add(token);
+        renderBulkPricingGroups();
+    });
+    groups.addEventListener('change', function(event) {
+        var target = event.target;
+        if (target.matches('[data-bulk-product-id]')) {
+            var id = target.dataset.bulkProductId;
+            if (target.checked) bulkPricingSelectedIds.add(id);
+            else bulkPricingSelectedIds.delete(id);
+            invalidateBulkPricingPreview();
+            showBulkPricingMessage('');
+            renderBulkPricingSection();
+        } else if (target.matches('[data-bulk-select-group]')) {
+            var group = getBulkPricingVisibleGroups().find(function(entry) { return bulkPricingGroupToken(entry.purchasePrice) === target.dataset.bulkSelectGroup; });
+            if (group) group.items.forEach(function(item) {
+                if (target.checked) bulkPricingSelectedIds.add(String(item.id));
+                else bulkPricingSelectedIds.delete(String(item.id));
+            });
+            invalidateBulkPricingPreview();
+            showBulkPricingMessage('');
+            renderBulkPricingSection();
+        }
+    });
+    document.getElementById('bulkPricingSearch').addEventListener('input', renderBulkPricingGroups);
+    document.getElementById('bulkPricingSort').addEventListener('change', function() {
+        bulkPricingSortOrder = this.value === 'desc' ? 'desc' : 'asc';
+        renderBulkPricingGroups();
+    });
+    document.getElementById('bulkPricingClearSelection').addEventListener('click', function() {
+        bulkPricingSelectedIds.clear();
+        invalidateBulkPricingPreview();
+        showBulkPricingMessage('');
+        renderBulkPricingSection();
+    });
+    document.getElementById('bulkUpdateCustomer').addEventListener('change', function() {
+        document.getElementById('bulkCustomerPrice').disabled = !this.checked;
+        invalidateBulkPricingPreview();
+    });
+    document.getElementById('bulkUpdateMechanic').addEventListener('change', function() {
+        document.getElementById('bulkMechanicPrice').disabled = !this.checked;
+        invalidateBulkPricingPreview();
+    });
+    ['bulkCustomerPrice', 'bulkMechanicPrice'].forEach(function(id) {
+        document.getElementById(id).addEventListener('input', invalidateBulkPricingPreview);
+    });
+    document.getElementById('bulkPricingPreviewButton').addEventListener('click', renderBulkPricingPreview);
+    document.getElementById('bulkPricingCancelPreview').addEventListener('click', function() {
+        invalidateBulkPricingPreview();
+        showBulkPricingMessage('');
+    });
+    document.getElementById('bulkPricingConfirm').addEventListener('click', confirmBulkPricingUpdate);
+}
+
+attachBulkPricingEvents();
 
 async function performDelete(itemId) {
     var item = allItems.find(function(i) { return i.id === itemId; });
@@ -2826,10 +3141,10 @@ function editItem(id) {
     tempMechanicCurrency = (currencySettings.defaultInputCurrency === 'secondary');
     document.getElementById('purchasePrice').value = tempPurchaseCurrency ? fmtMoney(convertToSecondary(item.purchasePrice)) :
         fmtMoney(item.purchasePrice);
-    document.getElementById('salePrice').value = tempSaleCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item
+    document.getElementById('salePrice').value = tempSaleCurrency ? fmtMoney(convertProductPriceToSecondary(item.salePrice)) : fmtMoney(item
         .salePrice);
     var mechanicValue = item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : '';
-    document.getElementById('mechanicPrice').value = mechanicValue === '' ? '' : (tempMechanicCurrency ? fmtMoney(convertToSecondary(mechanicValue)) : fmtMoney(mechanicValue));
+    document.getElementById('mechanicPrice').value = mechanicValue === '' ? '' : (tempMechanicCurrency ? fmtMoney(convertProductPriceToSecondary(mechanicValue)) : fmtMoney(mechanicValue));
     document.getElementById('quantity').value = item.quantity;
     var el;
     el = document.getElementById('productHidden'); if (el) el.checked = item.hidden || false;
@@ -3168,9 +3483,11 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     }
     purchase = Number((purchase || 0).toFixed(2));
     var rawSale = parseInputNumber(document.getElementById('salePrice').value);
-    var sale = rawSale === null ? 0 : (tempSaleCurrency ? convertToPrimary(rawSale) : rawSale);
+    var existingPriceItem = isEditingItem ? allItems.find(function(i) { return i.id === currentItemId; }) : null;
+    var sale = rawSale === null ? 0 : (existingPriceItem && window.PriceHelpers && window.PriceHelpers.getPrimaryPriceFromInput ? window.PriceHelpers.getPrimaryPriceFromInput(rawSale, existingPriceItem.salePrice, tempSaleCurrency, currencySettings.exchangeRate) : (tempSaleCurrency ? convertToPrimary(rawSale) : rawSale));
     var mechanicRaw = parseInputNumber(document.getElementById('mechanicPrice') ? document.getElementById('mechanicPrice').value : null);
-    var mechanicPrice = mechanicRaw === null ? null : (tempMechanicCurrency ? convertToPrimary(mechanicRaw) : mechanicRaw);
+    var originalMechanicPrice = existingPriceItem && existingPriceItem.mechanicPrice != null && existingPriceItem.mechanicPrice !== '' ? existingPriceItem.mechanicPrice : null;
+    var mechanicPrice = mechanicRaw === null ? null : (existingPriceItem && window.PriceHelpers && window.PriceHelpers.getPrimaryPriceFromInput ? window.PriceHelpers.getPrimaryPriceFromInput(mechanicRaw, originalMechanicPrice, tempMechanicCurrency, currencySettings.exchangeRate) : (tempMechanicCurrency ? convertToPrimary(mechanicRaw) : mechanicRaw));
     if (!name || purchase < 0 || sale < 0 || (mechanicPrice != null && mechanicPrice < 0) || qty < 0) return alert('بيانات غير صالحة');
     var catId = document.getElementById('productCategoryId').value;
     var cat = allCategories.find(function(c) { return c.id === catId; });
@@ -3259,7 +3576,7 @@ function openSellModal(itemId) {
             tempSellCurrency = (currencySettings.defaultSellCurrency === 'secondary');
             document.getElementById('sellPriceRow').classList.remove('swapped');
             document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings.secondaryCurrencySymbol : '$') + ')';
-            document.getElementById('sellPrice').value = tempSellCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item.salePrice);
+            document.getElementById('sellPrice').value = tempSellCurrency ? fmtMoney(convertProductPriceToSecondary(item.salePrice)) : fmtMoney(item.salePrice);
             updateSellPriceDisplay();
             document.getElementById('sellForm').dataset.itemId = itemId;
             document.getElementById('sellModal').classList.add('show');
@@ -3273,7 +3590,7 @@ function openSellModal(itemId) {
     document.getElementById('sellPriceRow').classList.remove('swapped');
     document.getElementById('sellPriceLabel').innerHTML = 'السعر للقطعة (' + (tempSellCurrency ? currencySettings
         .secondaryCurrencySymbol : '$') + ')';
-    document.getElementById('sellPrice').value = tempSellCurrency ? fmtMoney(convertToSecondary(item.salePrice)) : fmtMoney(item
+    document.getElementById('sellPrice').value = tempSellCurrency ? fmtMoney(convertProductPriceToSecondary(item.salePrice)) : fmtMoney(item
         .salePrice);
     updateSellPriceDisplay();
     document.getElementById('sellForm').dataset.itemId = itemId;
@@ -3376,7 +3693,7 @@ document.getElementById('switchSaleCurrency').addEventListener('click', function
     var v = parseInputNumber(inputEl.value);
     v = v === null ? 0 : v;
     tempSaleCurrency = !tempSaleCurrency;
-    inputEl.value = tempSaleCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
+    inputEl.value = tempSaleCurrency ? fmtMoney(convertProductPriceToSecondary(v)) : fmtMoney(convertToPrimary(v));
     updatePriceLabels();
     updateProductPriceDisplay();
 });
@@ -3385,7 +3702,7 @@ document.getElementById('switchMechanicCurrency').addEventListener('click', func
     var v = parseInputNumber(inputEl.value);
     v = v === null ? 0 : v;
     tempMechanicCurrency = !tempMechanicCurrency;
-    inputEl.value = tempMechanicCurrency ? fmtMoney(convertToSecondary(v)) : fmtMoney(convertToPrimary(v));
+    inputEl.value = tempMechanicCurrency ? fmtMoney(convertProductPriceToSecondary(v)) : fmtMoney(convertToPrimary(v));
     updatePriceLabels();
     updateProductPriceDisplay();
 });
@@ -5109,14 +5426,14 @@ var csvExportColumns = [
     {
         id: 'secondarySalePrice',
         label: 'سعر المبيع بالعملة الثانوية',
-        getter: function(item) { return fmtMoney(convertToSecondary(item.salePrice || 0)) + ' ' + currencySettings.secondaryCurrencySymbol; }
+        getter: function(item) { return fmtMoney(convertProductPriceToSecondary(item.salePrice || 0)) + ' ' + currencySettings.secondaryCurrencySymbol; }
     },
     {
         id: 'secondaryMechanicPrice',
         label: 'سعر الميكانيكي بالعملة الثانوية',
         getter: function(item) {
             var mechanic = (window.PriceHelpers && window.PriceHelpers.getMechanicDisplayPrice) ? window.PriceHelpers.getMechanicDisplayPrice(item) : (item.mechanicPrice != null && item.mechanicPrice !== '' ? item.mechanicPrice : item.salePrice);
-            return fmtMoney(convertToSecondary(mechanic || 0)) + ' ' + currencySettings.secondaryCurrencySymbol;
+            return fmtMoney(convertProductPriceToSecondary(mechanic || 0)) + ' ' + currencySettings.secondaryCurrencySymbol;
         }
     },
     {
@@ -5447,7 +5764,7 @@ function exportProductsPDF() {
         if (selectedFields.includes('salePrice')) row.push('$' + fmtMoney(item.salePrice));
         if (selectedFields.includes('quantity')) row.push(item.quantity || 0);
         if (selectedFields.includes('profitMargin')) row.push(calcProfitMarginPct(item.purchasePrice, item.salePrice) + '%');
-        if (selectedFields.includes('secondaryPrice')) row.push(fmtMoney(convertToSecondary(item.salePrice)) + ' ' + currencySettings.secondaryCurrencySymbol);
+        if (selectedFields.includes('secondaryPrice')) row.push(fmtMoney(convertProductPriceToSecondary(item.salePrice)) + ' ' + currencySettings.secondaryCurrencySymbol);
         return row;
     });
     var container = buildPdfExportContainer(

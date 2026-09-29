@@ -164,6 +164,7 @@ class PermissionManager {
             'dashboard': ['reports.view'],
             'inventory': ['inventory.view'],
             'addItem': ['inventory.create'],
+            'bulkPricing': ['inventory.edit'],
             'salesLog': ['sales.view'],
             'activityLog': ['logs.view'],
             'productAnalytics': ['reports.view'],

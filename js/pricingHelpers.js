@@ -4,6 +4,46 @@
         return Number.isFinite(parsed) ? parsed : null;
     }
 
+    function roundSecondaryPrice(value) {
+        var amount = toNumber(value);
+        if (amount === null || amount <= 0) return amount === null ? null : 0;
+        var step = amount >= 100000 ? 1000 : (amount >= 1000 ? 500 : (amount >= 100 ? 50 : (amount >= 10 ? 5 : 1)));
+        return Math.round(amount / step) * step;
+    }
+
+    function getSecondaryPrice(primaryPrice, exchangeRate) {
+        var price = toNumber(primaryPrice);
+        var rate = toNumber(exchangeRate);
+        if (price === null || rate === null || rate <= 0) return null;
+        return roundSecondaryPrice(price * rate);
+    }
+
+    function getPrimaryPriceFromInput(inputValue, originalPrimaryPrice, inputIsSecondary, exchangeRate) {
+        var input = toNumber(inputValue);
+        var original = toNumber(originalPrimaryPrice);
+        var rate = toNumber(exchangeRate);
+        if (input === null || rate === null || rate <= 0) return null;
+        if (original !== null) {
+            var secondary = getSecondaryPrice(original, rate);
+            var unchangedValues = inputIsSecondary ? [secondary] : [original, secondary / rate];
+            if (unchangedValues.some(function(value) { return value !== null && Math.abs(input - value) < 0.005; })) {
+                return original;
+            }
+        }
+        return inputIsSecondary ? input / rate : input;
+    }
+
+    function groupItemsByPurchasePrice(items) {
+        var groups = new Map();
+        (Array.isArray(items) ? items : []).forEach(function(item) {
+            var value = item && item.purchasePrice !== null && item.purchasePrice !== undefined && item.purchasePrice !== '' ? toNumber(item.purchasePrice) : null;
+            var key = value === null ? null : value;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(item);
+        });
+        return Array.from(groups, function(entry) { return { purchasePrice: entry[0], items: entry[1] }; });
+    }
+
     function getMechanicDisplayPrice(item) {
         if (!item) return null;
         var mechanicPrice = toNumber(item.mechanicPrice);
@@ -56,6 +96,10 @@
     }
 
     var api = {
+        roundSecondaryPrice: roundSecondaryPrice,
+        getSecondaryPrice: getSecondaryPrice,
+        getPrimaryPriceFromInput: getPrimaryPriceFromInput,
+        groupItemsByPurchasePrice: groupItemsByPurchasePrice,
         getMechanicDisplayPrice: getMechanicDisplayPrice,
         getProfitPercent: getProfitPercent,
         sortInventoryProducts: sortInventoryProducts

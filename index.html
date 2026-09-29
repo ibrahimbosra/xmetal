@@ -32,6 +32,7 @@
         <nav class="sidebar-nav" id="sidebarNav">
             <button class="active" data-section="dashboard"><i class="fas fa-th-large"></i> لوحة المعلومات</button>
             <button data-section="inventory"><i class="fas fa-boxes"></i> المخزون والمنتجات</button>
+            <button class="bulk-pricing-nav" data-section="bulkPricing" id="bulkPricingNavButton" hidden><i class="fas fa-tags"></i> التسعير الجماعي</button>
             <button data-section="addItem"><i class="fas fa-plus-circle"></i> إضافة قطعة جديدة</button>
             <button data-section="salesLog"><i class="fas fa-receipt"></i> سجل المبيعات</button>
             <button data-section="activityLog"><i class="fas fa-history"></i> سجل العمليات</button>
@@ -101,6 +102,64 @@
                     <div class="items-container" id="itemsList"></div>
                     <button class="scroll-top-btn" id="inventoryScrollTopBtn" title="العودة للأعلى"><i class="fas fa-chevron-up"></i></button>
                 </div>
+            </div>
+
+            <div class="section-panel" id="section-bulkPricing">
+                <div class="bulk-pricing-header">
+                    <div>
+                        <h2>التسعير الجماعي</h2>
+                        <p>تجميع المنتجات حسب سعر الشراء الأساسي فقط.</p>
+                    </div>
+                    <label class="bulk-pricing-sort">الترتيب
+                        <select id="bulkPricingSort">
+                            <option value="asc">من الأرخص إلى الأغلى</option>
+                            <option value="desc">من الأغلى إلى الأرخص</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="bulk-pricing-toolbar">
+                    <label class="bulk-pricing-search"><i class="fas fa-search" aria-hidden="true"></i><input id="bulkPricingSearch" type="search" placeholder="بحث باسم المنتج" autocomplete="off"></label>
+                    <span id="bulkPricingSelectionCount" class="bulk-pricing-selection-count" role="status">المحدد: 0 منتجات</span>
+                    <button id="bulkPricingClearSelection" class="btn-sm outline" type="button" disabled>إلغاء التحديد</button>
+                </div>
+                <div id="bulkPricingGroups" class="bulk-pricing-groups" aria-live="polite"></div>
+                <p id="bulkPricingMessage" class="bulk-pricing-message" role="status" hidden></p>
+                <section id="bulkPricingEditor" class="bulk-pricing-editor" hidden aria-labelledby="bulkPricingEditorTitle">
+                    <div class="bulk-pricing-editor-heading">
+                        <h3 id="bulkPricingEditorTitle">تعديل أسعار المنتجات المحددة</h3>
+                        <span id="bulkPricingEditorCount"></span>
+                    </div>
+                    <div class="bulk-pricing-edit-grid">
+                        <label class="bulk-pricing-edit-option"><input id="bulkUpdateCustomer" type="checkbox"><span>تعديل سعر الزبون</span></label>
+                        <label class="bulk-pricing-edit-field" for="bulkCustomerPrice">سعر الزبون الجديد <span class="bulkPricingCurrencySymbol"></span>
+                            <input id="bulkCustomerPrice" type="number" min="0" step="any" inputmode="decimal" disabled>
+                        </label>
+                        <label class="bulk-pricing-edit-option"><input id="bulkUpdateMechanic" type="checkbox"><span>تعديل سعر الميكانيكي</span></label>
+                        <label class="bulk-pricing-edit-field" for="bulkMechanicPrice">سعر الميكانيكي الجديد <span class="bulkPricingCurrencySymbol"></span>
+                            <input id="bulkMechanicPrice" type="number" min="0" step="any" inputmode="decimal" disabled>
+                        </label>
+                    </div>
+                    <p class="bulk-pricing-rate-note">سيُحوّل السعر المدخل إلى العملة الأساسية باستخدام سعر الصرف الحالي: <strong id="bulkPricingExchangeRate"></strong></p>
+                    <button id="bulkPricingPreviewButton" class="btn-sm" type="button">معاينة التعديل</button>
+                </section>
+                <section id="bulkPricingPreview" class="bulk-pricing-preview" hidden aria-labelledby="bulkPricingPreviewTitle">
+                    <div class="bulk-pricing-editor-heading">
+                        <h3 id="bulkPricingPreviewTitle">معاينة التعديل</h3>
+                        <span id="bulkPricingPreviewCount"></span>
+                    </div>
+                    <div id="bulkPricingPreviewSummary" class="bulk-pricing-preview-summary"></div>
+                    <div class="bulk-pricing-preview-table-wrap">
+                        <table class="bulk-pricing-preview-table">
+                            <thead><tr><th>المنتج</th><th>سعر الشراء</th><th>سعر الزبون الحالي ← الجديد</th><th>سعر الميكانيكي الحالي ← الجديد</th></tr></thead>
+                            <tbody id="bulkPricingPreviewRows"></tbody>
+                        </table>
+                    </div>
+                    <p id="bulkPricingPreviewMore" class="bulk-pricing-preview-more" hidden></p>
+                    <div class="bulk-pricing-preview-actions">
+                        <button id="bulkPricingCancelPreview" class="btn-sm outline" type="button">إلغاء</button>
+                        <button id="bulkPricingConfirm" class="btn-sm" type="button">تأكيد التعديل</button>
+                    </div>
+                </section>
             </div>
 
             <div class="section-panel" id="section-addItem">
@@ -594,7 +653,7 @@
     <script src="js/aiChat.js"></script>
     
     <!-- Main application -->
-    <script src="js/pricingHelpers.js?v=20260705"></script>
-    <script src="js/app.js?v=20260705"></script>
+    <script src="js/pricingHelpers.js?v=bulk-pricing-4"></script>
+    <script src="js/app.js?v=bulk-pricing-4"></script>
 </body>
 </html>

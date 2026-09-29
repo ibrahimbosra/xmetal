@@ -45,6 +45,7 @@
     }
     var number = function (value) { var n = Number(value); return Number.isFinite(n) ? n : null; };
     var secondary = function (primary) { return (Number(primary) || 0) * (Number(currency.exchangeRate) || 1); };
+    var productSecondary = function (primaryValue) { return window.PriceHelpers && window.PriceHelpers.getSecondaryPrice ? window.PriceHelpers.getSecondaryPrice(primaryValue, currency.exchangeRate) : secondary(primaryValue); };
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
     var money = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
     var price = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value) || 0); };
@@ -377,8 +378,8 @@
                 '<h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
                 '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong>' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
-                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(secondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
-                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + price(secondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(productSecondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + price(productSecondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '</div>';
             }
             $('productsGrid').appendChild(element);
@@ -441,7 +442,7 @@
     function updateSalePriceGuide(forceAutomatic) {
         var quantity = number($('saleQuantity').value) || 0;
         if (!salePriceManuallyEdited && (forceAutomatic || !editingSale) && selectedItem && quantity > 0) {
-            var defaultPrice = saleDefaultPrice === null ? secondary(selectedItem.salePrice) : saleDefaultPrice;
+            var defaultPrice = saleDefaultPrice === null ? productSecondary(selectedItem.salePrice) : saleDefaultPrice;
             $('salePrice').value = Number((defaultPrice * quantity).toFixed(2));
         }
         var total = number($('salePrice').value) || 0;
@@ -467,7 +468,7 @@
 
     function warningText(info) {
         var referenceName = info.type === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي';
-        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + price(secondary(info.reference)) + ' ' + currency.secondaryCurrencySymbol;
+        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + price(productSecondary(info.reference)) + ' ' + currency.secondaryCurrencySymbol;
     }
 
     function upsertSaleLocally(sale) {
@@ -567,7 +568,7 @@
     }
 
     function openNewSale(item, defaultPricePrimary, mode) {
-        selectedItem = item; editingSale = null; activeSaleMode = mode === 'mechanic' ? 'mechanic' : 'base'; var selectedPrice = number(defaultPricePrimary); saleDefaultPrice = secondary(selectedPrice === null ? item.salePrice : selectedPrice); resetSaleForm();
+        selectedItem = item; editingSale = null; activeSaleMode = mode === 'mechanic' ? 'mechanic' : 'base'; var selectedPrice = number(defaultPricePrimary); saleDefaultPrice = productSecondary(selectedPrice === null ? item.salePrice : selectedPrice); resetSaleForm();
         $('saleModal').classList.toggle('base-price-mode', mode === 'base');
         $('saleModal').classList.toggle('mechanic-price-mode', mode === 'mechanic');
         $('saleModalEyebrow').textContent = mode === 'mechanic' ? 'تسجيل بيع لميكانيكي' : 'تسجيل بيع';
