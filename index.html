@@ -193,6 +193,7 @@
                             <div class="form-group"><label id="mechanicPriceLabel">سعر الميكانيكي ($)</label><div class="input-wrapper special"><i class="fas fa-wrench"></i><input type="number" id="mechanicPrice" step="0.01" min="0"><button type="button" class="currency-switch" id="switchMechanicCurrency">تبديل</button></div><div id="mechanicPriceSecondary" class="currency-info"></div><div id="mechanicPriceHint" class="price-hint"></div></div>
                             <div class="form-group"><label>الكمية</label><div class="input-wrapper"><i class="fas fa-cubes"></i><input type="number" id="quantity" min="0" step="0.01" required></div></div>
                             <div class="form-group"><label>الفئة</label><div class="input-wrapper"><i class="fas fa-list"></i><select id="productCategoryId"><option value="">-- بدون فئة --</option></select></div></div>
+                            <div class="form-group full-width"><label>صور المنتج</label><div id="imagesContainer"></div><button type="button" id="addImageBtn" class="action-btn">+ إضافة صورة</button><small class="product-image-help">يمكنك إدخال رابط مباشر أو اختيار صورة لرفعها إلى Cloudinary. اختر صورة رئيسية لعرضها في بطاقة المنتج.</small></div>
                         </div>
                         <!-- Advanced toggle: lazy-load secondary fields to improve performance -->
                         <div style="margin-top:12px;display:flex;align-items:center;justify-content:flex-start;gap:10px;">
@@ -207,7 +208,6 @@
                             <div class="form-group full-width"><label>وصف المنتج</label><textarea id="productDescription" rows="2" style="width:100%;padding:10px;border-radius:20px;border:1px solid var(--border);font-family:'Cairo',sans-serif;background:#f8fafc;color:var(--text);"></textarea></div>
                             <div class="form-group full-width"><label>رابط يوتيوب</label><div class="input-wrapper"><i class="fab fa-youtube"></i><input type="url" id="productYoutubeUrl" placeholder="https://youtube.com/..."></div></div>
                             <div class="form-group full-width"><label>الخصائص</label><div id="specificationsContainer"></div><button type="button" id="addSpecBtn" class="action-btn" style="margin-top:4px;">+ إضافة خاصية</button></div>
-                            <div class="form-group full-width"><label>الصور (روابط)</label><div id="imagesContainer"></div><button type="button" id="addImageBtn" class="action-btn">+ إضافة صورة</button></div>
                             <div class="toggle-row"><span>مخفي للزبائن</span><label><input type="checkbox" id="productHidden"></label></div>
                             <div class="toggle-row"><span>كمية محدودة</span><label><input type="checkbox" id="productLimitedQty"></label></div>
                             <div class="toggle-row"><span>تفعيل الخصم</span><label><input type="checkbox" id="productDiscountEnabled"></label></div>
@@ -368,6 +368,16 @@
                             <label><input type="checkbox" id="enablePurchaseBatches"></label>
                         </div>
                         <p style="margin-top:8px;color:var(--text3);font-size:0.9rem;">يُستخدم هذا الخيار فقط لعرض وحساب السعر المتوسط من الدفعات. النظام يعتمد افتراضياً على السعر والكمية اليدوية.</p>
+                    </div>
+                    <div class="cloudinary-settings">
+                        <h3><i class="fas fa-images"></i> إعدادات رفع صور المنتجات</h3>
+                        <p>أدخل Cloud name واسم Upload Preset من حساب Cloudinary. يجب أن يكون Upload Preset من نوع Unsigned. لا تضع API Secret هنا.</p>
+                        <form id="cloudinarySettingsForm">
+                            <div class="form-group"><label for="cloudinaryCloudName">Cloud name</label><input id="cloudinaryCloudName" type="text" dir="ltr" autocomplete="off" spellcheck="false" maxlength="100" required></div>
+                            <div class="form-group"><label for="cloudinaryUploadPreset">Upload Preset</label><input id="cloudinaryUploadPreset" type="text" dir="ltr" autocomplete="off" spellcheck="false" maxlength="100" required></div>
+                            <p id="cloudinarySettingsStatus" class="cloudinary-settings-status" role="status" aria-live="polite">جارٍ تحميل الإعدادات...</p>
+                            <div class="form-actions"><button type="submit" id="saveCloudinarySettingsBtn" class="save-btn" disabled>حفظ إعدادات رفع الصور</button></div>
+                        </form>
                     </div>
                     <div style="display:grid;gap:20px;">
                         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;">
@@ -654,6 +664,6 @@
     
     <!-- Main application -->
     <script src="js/pricingHelpers.js?v=bulk-pricing-4"></script>
-    <script src="js/app.js?v=bulk-pricing-4"></script>
+    <script src="js/app.js?v=product-cloudinary-images-1"></script>
 </body>
 </html>

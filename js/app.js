@@ -452,6 +452,95 @@ function getMonthKey(ts) { var d = new Date(ts); return d.getFullYear() + '-' + 
 function getYearKey(ts) { return String(new Date(ts).getFullYear()); }
 function escHtml(s) { if (!s) return ''; return s.replace(/[&<>]/g, function(m) { if (m === '&') return '&amp;';
         if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }); }
+function escapeHtmlAttribute(value) {
+    return String(value || '').replace(/[&<>"']/g, function(character) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character];
+    });
+}
+function normalizeProductImageUrl(value) {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    try {
+        var url = new URL(value.trim());
+        if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname || url.username || url.password) return '';
+        return url.href;
+    } catch (e) {
+        return '';
+    }
+}
+function getPrimaryProductImageUrl(item) {
+    if (!item || !Array.isArray(item.images)) return '';
+    var image = item.images.find(function(entry) { return entry && entry.isPrimary && entry.url; }) ||
+        item.images.find(function(entry) { return entry && entry.url; });
+    if (!image) image = item.images.find(function(entry) { return typeof entry === 'string' && entry.trim(); });
+    return normalizeProductImageUrl(typeof image === 'string' ? image : image && image.url);
+}
+function validCloudinarySettings(config) {
+    return !!config &&
+        /^[a-z0-9][a-z0-9-]*$/i.test(config.cloudName || '') &&
+        /^[a-z0-9_-]+$/i.test(config.uploadPreset || '');
+}
+function uploadProductImage(file, config, onProgress) {
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', config.uploadPreset);
+    var request = new XMLHttpRequest();
+    request.open('POST', 'https://api.cloudinary.com/v1_1/' + encodeURIComponent(config.cloudName) + '/image/upload');
+    request.timeout = 120000;
+    var settled = false;
+    var resolveUpload;
+    var rejectUpload;
+    var promise = new Promise(function(resolve, reject) { resolveUpload = resolve; rejectUpload = reject; });
+    function finish(error, url) {
+        if (settled) return;
+        settled = true;
+        request.upload.removeEventListener('progress', handleProgress);
+        request.removeEventListener('load', handleLoad);
+        request.removeEventListener('error', handleError);
+        request.removeEventListener('abort', handleAbort);
+        request.removeEventListener('timeout', handleTimeout);
+        if (error) rejectUpload(error);
+        else resolveUpload(url);
+    }
+    function handleProgress(event) {
+        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    }
+    function handleLoad() {
+        var response;
+        try {
+            response = JSON.parse(request.responseText);
+        } catch (error) {
+            finish(new Error('استجابة Cloudinary غير صالحة.'));
+            return;
+        }
+        if (request.status < 200 || request.status >= 300) {
+            finish(new Error(response.error && response.error.message || 'رفض Cloudinary عملية رفع الصورة.'));
+            return;
+        }
+        var secureUrl = normalizeProductImageUrl(response.secure_url);
+        if (!secureUrl || secureUrl.indexOf('https://') !== 0) {
+            finish(new Error('لم يُرجع Cloudinary رابطًا آمنًا صالحًا للصورة.'));
+            return;
+        }
+        finish(null, secureUrl);
+    }
+    function handleError() { finish(new Error('تعذر الاتصال بخدمة Cloudinary.')); }
+    function handleAbort() { finish(new Error('تم إلغاء رفع الصورة.')); }
+    function handleTimeout() { finish(new Error('انتهت مهلة رفع الصورة. تحقق من الاتصال وحاول مجددًا.')); }
+    request.upload.addEventListener('progress', handleProgress);
+    request.addEventListener('load', handleLoad);
+    request.addEventListener('error', handleError);
+    request.addEventListener('abort', handleAbort);
+    request.addEventListener('timeout', handleTimeout);
+    try {
+        request.send(formData);
+    } catch (error) {
+        finish(new Error('تعذر بدء رفع الصورة.'));
+    }
+    return {
+        promise: promise,
+        abort: function() { if (!settled) request.abort(); }
+    };
+}
 function escJsString(s) {
     return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
@@ -2277,6 +2366,29 @@ async function fetchUserDisplayNameSettings() {
     if (textArea) textArea.value = formatUserDisplayNamesForInput(userDisplayNameSettings);
 }
 
+async function loadCloudinarySettings() {
+    var cloudNameInput = document.getElementById('cloudinaryCloudName');
+    var uploadPresetInput = document.getElementById('cloudinaryUploadPreset');
+    var status = document.getElementById('cloudinarySettingsStatus');
+    var saveButton = document.getElementById('saveCloudinarySettingsBtn');
+    if (!cloudNameInput || !uploadPresetInput || !status || !saveButton) return;
+    status.textContent = 'جارٍ تحميل الإعدادات...';
+    saveButton.disabled = true;
+    try {
+        var snapshot = await db.collection('settings').doc('cloudinary').get();
+        var data = snapshot.exists ? snapshot.data() : {};
+        cloudNameInput.value = data && typeof data.cloudName === 'string' ? data.cloudName : '';
+        uploadPresetInput.value = data && typeof data.uploadPreset === 'string' ? data.uploadPreset : '';
+        status.textContent = validCloudinarySettings({ cloudName: cloudNameInput.value.trim(), uploadPreset: uploadPresetInput.value.trim() }) ?
+            'إعدادات Cloudinary جاهزة لرفع الصور.' : 'أدخل Cloud name وUpload Preset من نوع Unsigned ثم احفظهما لتفعيل الرفع.';
+    } catch (error) {
+        console.error('Failed to load Cloudinary settings:', error);
+        status.textContent = 'تعذر تحميل إعدادات Cloudinary. تحقق من الاتصال والصلاحيات.';
+    } finally {
+        saveButton.disabled = false;
+    }
+}
+
 function isPurchaseBatchesEnabled() {
     return !!currencySettings.enablePurchaseBatches;
 }
@@ -2400,6 +2512,7 @@ function renderCurrentSection() {
                 renderStoreInfo();
                 renderCurrencySettingsForm();
                 fetchUserDisplayNameSettings();
+                loadCloudinarySettings();
                 break;
             case 'aiAssistant':
                 break;
@@ -2753,9 +2866,12 @@ function renderInventory() {
         var showMechanicDetails = showMechanicPricesGlobally;
         var cardClass = item.quantity === 0 ? 'out-of-stock' : (item.quantity <= 2 ? 'low-stock' : '');
         var itemCapital = getItemInventoryCapital(item);
+        var productImageUrl = getPrimaryProductImageUrl(item);
+        var productImageMarkup = productImageUrl ? '<img class="product-card-image" src="' + escapeHtmlAttribute(productImageUrl) +
+            '" alt="' + escapeHtmlAttribute(item.name) + '" loading="lazy">' : '';
         html += '<div class="product-card ' + cardClass + '" data-id="' + item.id +
             '"><div class="product-index-outer">' + (idx + 1) + '</div>' +
-            '<div class="card-header"><div class="product-title"><span class="product-name">' + escHtml(item
+            '<div class="card-header">' + productImageMarkup + '<div class="product-title"><span class="product-name">' + escHtml(item
                 .name) + '</span>' + (item.categoryName ? '<span class="product-category-tag">' + escHtml(item
                 .categoryName) + '</span>' : '') + (item.location ? '<span class="product-location-tag"><i class="fas fa-map-marker-alt"></i> ' + escHtml(item.location) + '</span>' : '') + '</div>' +
             '<div class="product-meta-wrapper"><div class="product-meta"><span><i class="fas fa-cubes"></i> ' +
@@ -3094,6 +3210,8 @@ async function performDelete(itemId) {
 function prepareAddItemForm() {
     currentItemId = null;
     isEditingItem = false;
+    window.pendingEditItem = null;
+    cancelProductImageUploads();
     document.getElementById('itemForm').reset();
     var el;
     el = document.getElementById('itemLocation'); if (el) el.value = '';
@@ -3109,8 +3227,8 @@ function prepareAddItemForm() {
     el = document.getElementById('imagesContainer'); if (el) el.innerHTML = '';
     if (window.advancedFieldsLoaded) {
         addSpecificationRow('', '');
-        addImageRow('', true);
     }
+    addImageRow('', true);
     // initialize purchase batches UI
     window.currentPurchaseBatches = [];
     var pbList = document.getElementById('purchaseBatchesList');
@@ -3156,6 +3274,7 @@ function editItem(id) {
     el = document.getElementById('productDescription'); if (el) el.value = item.description || '';
     el = document.getElementById('productYoutubeUrl'); if (el) el.value = item.youtubeUrl || '';
     document.getElementById('productCategoryId').value = item.categoryId || '';
+    loadProductImages(item);
     // If advanced fields are loaded inject specs/images now, otherwise defer until user opens advanced options
     if (window.advancedFieldsLoaded) {
         loadSpecificationsAndImages(item);
@@ -3203,22 +3322,112 @@ function addImageRow(url, isPrimary) {
     isPrimary = isPrimary || false;
     var div = document.createElement('div');
     div.className = 'image-row';
-    div.innerHTML = '<input type="url" placeholder="رابط الصورة" value="' + escHtml(url) +
-        '"><button type="button" class="set-primary-btn" style="' + (isPrimary ? 'background:#4caf50;color:#fff' :
-            '') + '">' + (isPrimary ? 'رئيسي' : 'تعيين رئيسي') +
-        '</button><button type="button" class="remove-image">✖</button>';
+    div.innerHTML = '<input type="url" placeholder="رابط الصورة" autocomplete="url" aria-label="رابط صورة المنتج">' +
+        '<div class="image-upload-controls"><button type="button" class="image-upload-button"><i class="fas fa-upload"></i> رفع صورة</button>' +
+        '<input type="file" accept="image/jpeg,image/png,image/webp" hidden><span class="image-upload-status" role="status" aria-live="polite"></span></div>' +
+        '<button type="button" class="set-primary-btn"></button><button type="button" class="remove-image" aria-label="إزالة الصورة">✖</button>' +
+        '<div class="image-row-preview" hidden><img alt="معاينة صورة المنتج"><span></span></div>';
+    var urlInput = div.querySelector('input[type="url"]');
+    var fileInput = div.querySelector('input[type="file"]');
+    var uploadButton = div.querySelector('.image-upload-button');
+    var uploadStatus = div.querySelector('.image-upload-status');
+    var preview = div.querySelector('.image-row-preview');
+    var previewImage = preview.querySelector('img');
+    var previewText = preview.querySelector('span');
     var btn = div.querySelector('.set-primary-btn');
+    function setPrimary(value) {
+        btn.dataset.primary = value ? 'true' : 'false';
+        btn.style.background = value ? '#4caf50' : '';
+        btn.style.color = value ? '#fff' : '';
+        btn.innerText = value ? 'رئيسي' : 'تعيين رئيسي';
+    }
+    function updatePreview() {
+        var imageUrl = normalizeProductImageUrl(urlInput.value);
+        if (!urlInput.value.trim()) {
+            preview.hidden = true;
+            previewImage.removeAttribute('src');
+            return;
+        }
+        preview.hidden = false;
+        previewImage.hidden = false;
+        previewText.textContent = imageUrl ? 'جارٍ تحميل المعاينة...' : 'أدخل رابط صورة صالحًا يبدأ بـ http أو https.';
+        previewImage.onload = function() { previewText.textContent = ''; };
+        previewImage.onerror = function() { previewImage.hidden = true; previewText.textContent = 'تعذر تحميل الصورة من هذا الرابط.'; };
+        if (imageUrl) previewImage.src = imageUrl;
+        else previewImage.removeAttribute('src');
+    }
+    urlInput.value = url;
+    urlInput.addEventListener('input', updatePreview);
+    setPrimary(isPrimary);
     btn.addEventListener('click', function() {
         document.querySelectorAll('.image-row .set-primary-btn').forEach(function(b) { b.style
                 .background = '';
             b.style.color = '';
+            b.dataset.primary = 'false';
             b.innerText = 'تعيين رئيسي'; });
-        btn.style.background = '#4caf50';
-        btn.style.color = '#fff';
-        btn.innerText = 'رئيسي';
+        setPrimary(true);
     });
-    div.querySelector('.remove-image').addEventListener('click', function() { div.remove(); });
+    uploadButton.addEventListener('click', function() { fileInput.click(); });
+    fileInput.addEventListener('change', async function() {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) === -1) {
+            uploadStatus.textContent = 'الصيغ المسموحة هي JPEG وPNG وWebP فقط.';
+            fileInput.value = '';
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            uploadStatus.textContent = 'يجب ألا يتجاوز حجم الصورة 10 MiB.';
+            fileInput.value = '';
+            return;
+        }
+        if (!auth || !auth.currentUser) {
+            uploadStatus.textContent = 'يجب تسجيل الدخول قبل رفع الصورة.';
+            fileInput.value = '';
+            return;
+        }
+        uploadButton.disabled = true;
+        uploadStatus.textContent = 'جارٍ تحميل إعدادات Cloudinary...';
+        try {
+            var settingsSnapshot = await db.collection('settings').doc('cloudinary').get();
+            var settingsData = settingsSnapshot.exists ? settingsSnapshot.data() : {};
+            var config = {
+                cloudName: typeof settingsData.cloudName === 'string' ? settingsData.cloudName.trim() : '',
+                uploadPreset: typeof settingsData.uploadPreset === 'string' ? settingsData.uploadPreset.trim() : ''
+            };
+            if (!validCloudinarySettings(config)) throw new Error('أدخل Cloud name وUpload Preset واحفظهما في قسم الإعدادات أولًا.');
+            uploadStatus.textContent = 'جارٍ رفع الصورة...';
+            var request = uploadProductImage(file, config, function(percent) {
+                if (div.isConnected) uploadStatus.textContent = 'جارٍ رفع الصورة... ' + percent + '%';
+            });
+            div._abortImageUpload = request.abort;
+            var secureUrl = await request.promise;
+            if (div.isConnected) {
+                urlInput.value = secureUrl;
+                updatePreview();
+                uploadStatus.textContent = 'تم رفع الصورة. احفظ المنتج لإتمام التغيير.';
+            }
+        } catch (error) {
+            console.error('Product image upload failed:', error);
+            if (div.isConnected) uploadStatus.textContent = error && error.message ? error.message : 'تعذر رفع الصورة إلى Cloudinary.';
+        } finally {
+            div._abortImageUpload = null;
+            fileInput.value = '';
+            if (div.isConnected) uploadButton.disabled = false;
+        }
+    });
+    div.querySelector('.remove-image').addEventListener('click', function() {
+        if (div._abortImageUpload) div._abortImageUpload();
+        div.remove();
+    });
     document.getElementById('imagesContainer').appendChild(div);
+    updatePreview();
+}
+
+function cancelProductImageUploads() {
+    document.querySelectorAll('#imagesContainer .image-row').forEach(function(row) {
+        if (row._abortImageUpload) row._abortImageUpload();
+    });
 }
 
 function collectSpecifications() {
@@ -3232,9 +3441,9 @@ function collectSpecifications() {
 function collectImages() {
     var rows = document.querySelectorAll('#imagesContainer .image-row');
     var images = [];
-    rows.forEach(function(row) { var urlInput = row.querySelector('input'); var isPrimaryBtn = row.querySelector(
-            '.set-primary-btn'); if (urlInput && urlInput.value.trim()) images.push({ url: urlInput.value.trim(),
-            isPrimary: isPrimaryBtn && isPrimaryBtn.innerText.includes('رئيسي') }); });
+    rows.forEach(function(row) { var urlInput = row.querySelector('input[type="url"]'); var isPrimaryBtn = row.querySelector(
+            '.set-primary-btn'); if (urlInput && urlInput.value.trim()) images.push({ url: normalizeProductImageUrl(urlInput.value),
+            isPrimary: isPrimaryBtn && isPrimaryBtn.dataset.primary === 'true' }); });
     if (images.length && !images.some(function(img) { return img.isPrimary; })) images[0].isPrimary = true;
     return images;
 }
@@ -3359,14 +3568,27 @@ document.getElementById('addPurchaseBatchBtn').addEventListener('click', functio
 
 function loadSpecificationsAndImages(product) {
     var specC = document.getElementById('specificationsContainer');
+    if (specC) {
+        specC.innerHTML = '';
+        if (product.specifications) product.specifications.forEach(function(spec) { addSpecificationRow(spec.key, spec
+                .value); });
+        else addSpecificationRow('', '');
+    }
+    loadProductImages(product);
+}
+
+function loadProductImages(product) {
     var imgC = document.getElementById('imagesContainer');
-    specC.innerHTML = '';
+    if (!imgC) return;
+    cancelProductImageUploads();
     imgC.innerHTML = '';
-    if (product.specifications) product.specifications.forEach(function(spec) { addSpecificationRow(spec.key, spec
-            .value); });
-    else addSpecificationRow('', '');
-    if (product.images) product.images.forEach(function(img) { addImageRow(img.url, img.isPrimary); });
-    else addImageRow('', true);
+    if (Array.isArray(product.images) && product.images.length) {
+        product.images.forEach(function(image, index) {
+            if (typeof image === 'string') addImageRow(image, index === 0);
+            else if (image && typeof image.url === 'string') addImageRow(image.url, image.isPrimary === true);
+        });
+    }
+    if (!imgC.children.length) addImageRow('', true);
 }
 
 // Ensure advanced product fields are instantiated (lazy load)
@@ -3380,8 +3602,6 @@ function ensureAdvancedFieldsLoaded() {
         // wire up buttons
         var addSpec = document.getElementById('addSpecBtn');
         if (addSpec) addSpec.addEventListener('click', function() { addSpecificationRow('', ''); });
-        var addImg = document.getElementById('addImageBtn');
-        if (addImg) addImg.addEventListener('click', function() { addImageRow('', document.querySelectorAll('#imagesContainer .image-row').length === 0); });
         var disc = document.getElementById('productDiscountEnabled');
         if (disc) disc.addEventListener('change', function() { var dv = document.getElementById('discountValueGroup'); if (dv) dv.style.display = this.checked ? 'block' : 'none'; });
         // If we are editing an item and pending data exists, populate it
@@ -3389,9 +3609,8 @@ function ensureAdvancedFieldsLoaded() {
             loadSpecificationsAndImages(window.pendingEditItem);
             window.pendingEditItem = null;
         } else {
-            // if creating new item, ensure one empty spec and image exist
+            // if creating a new item, ensure the optional specification row exists
             if (!document.querySelectorAll('#specificationsContainer .spec-row').length) addSpecificationRow('', '');
-            if (!document.querySelectorAll('#imagesContainer .image-row').length) addImageRow('', true);
         }
         window.advancedFieldsLoaded = true;
         resolve();
@@ -3506,6 +3725,16 @@ document.getElementById('itemForm').addEventListener('submit', async function(e)
     var descriptionVal = document.getElementById('productDescription') ? document.getElementById('productDescription').value : (existingItem ? (existingItem.description || '') : '');
     var youtubeVal = document.getElementById('productYoutubeUrl') ? document.getElementById('productYoutubeUrl').value : (existingItem ? (existingItem.youtubeUrl || '') : '');
     var specsVal = document.getElementById('specificationsContainer') ? collectSpecifications() : (existingItem ? (existingItem.specifications || []) : []);
+    var uploadingImage = document.querySelector('#imagesContainer .image-upload-button:disabled');
+    if (uploadingImage) return alert('انتظر اكتمال رفع الصور قبل حفظ المنتج.');
+    var invalidImage = Array.from(document.querySelectorAll('#imagesContainer input[type="url"]')).find(function(input) {
+        return input.value.trim() && !normalizeProductImageUrl(input.value);
+    });
+    if (invalidImage) {
+        alert('تحقق من روابط الصور؛ يجب أن تبدأ بـ http:// أو https://.');
+        invalidImage.focus();
+        return;
+    }
     var imagesVal = document.getElementById('imagesContainer') ? collectImages() : (existingItem ? (existingItem.images || []) : []);
 
     var extra = {
@@ -4880,6 +5109,41 @@ if (userDisplayNamesForm) {
         await db.collection('settings').doc('userDisplayNames').set(map);
         await logActivity('userDisplayNamesUpdate', 'settings', 'userDisplayNames', 'تحديث أسماء المستخدمين', map);
         showToast('تم حفظ أسماء المستخدمين');
+    });
+}
+
+var cloudinarySettingsForm = document.getElementById('cloudinarySettingsForm');
+if (cloudinarySettingsForm) {
+    cloudinarySettingsForm.addEventListener('submit', async function(event) {
+        event.preventDefault();
+        var cloudName = document.getElementById('cloudinaryCloudName').value.trim();
+        var uploadPreset = document.getElementById('cloudinaryUploadPreset').value.trim();
+        var status = document.getElementById('cloudinarySettingsStatus');
+        var saveButton = document.getElementById('saveCloudinarySettingsBtn');
+        var config = { cloudName: cloudName, uploadPreset: uploadPreset };
+        if (!validCloudinarySettings(config)) {
+            status.textContent = 'أدخل Cloud name وUpload Preset صالحين.';
+            return;
+        }
+        if (!auth || !auth.currentUser) {
+            status.textContent = 'يجب تسجيل الدخول قبل حفظ الإعدادات.';
+            return;
+        }
+        saveButton.disabled = true;
+        status.textContent = 'جارٍ حفظ إعدادات Cloudinary...';
+        try {
+            await db.collection('settings').doc('cloudinary').set({
+                cloudName: config.cloudName,
+                uploadPreset: config.uploadPreset,
+                updatedAt: Date.now()
+            });
+            status.textContent = 'تم حفظ إعدادات Cloudinary بنجاح.';
+        } catch (error) {
+            console.error('Failed to save Cloudinary settings:', error);
+            status.textContent = 'تعذر حفظ الإعدادات. تحقق من الاتصال وصلاحيات قاعدة البيانات.';
+        } finally {
+            saveButton.disabled = false;
+        }
     });
 }
 

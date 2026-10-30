@@ -8,12 +8,19 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="لوحة الإدارة">
+    <script>
+        try {
+            document.documentElement.dataset.theme = sessionStorage.getItem('xmetalMobAdminTheme') === 'light' ? 'light' : 'dark';
+        } catch (error) {
+            document.documentElement.dataset.theme = 'dark';
+        }
+    </script>
     <link rel="manifest" href="mob-admin-manifest.json">
     <link rel="icon" href="icons/icon-192.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icons/icon-192.svg">
     <title>X METAL - لوحة الإدارة</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/mob-admin.css?v=admin-product-delete-1">
+    <link rel="stylesheet" href="css/mob-admin.css?v=admin-dark-mode-1">
 </head>
 <body>
     <div class="splash-screen" id="splashScreen" aria-label="جاري تشغيل نقطة البيع">
@@ -52,6 +59,7 @@
             <button class="install-button" id="installButton" type="button" aria-label="تثبيت التطبيق" title="تثبيت التطبيق"><i class="fas fa-download" aria-hidden="true"></i></button>
             <button class="add-product-button" id="addProductButton" type="button" aria-label="إنشاء منتج جديد">+</button>
             <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل" title="فتح السجل"><i class="fas fa-history" aria-hidden="true"></i></button>
+            <button class="theme-toggle-button" id="themeToggleButton" type="button" aria-label="التبديل إلى الوضع النهاري" title="التبديل إلى الوضع النهاري" aria-pressed="true"><i class="fas fa-sun" aria-hidden="true"></i></button>
         </section>
 
         <nav class="product-filters" id="productFilters" aria-label="تصفية المنتجات">
@@ -113,6 +121,6 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/mob-admin-helpers.js"></script>
     <script src="js/pricingHelpers.js?v=20260929"></script>
-    <script src="js/mob-admin.js?v=20260929"></script>
+    <script src="js/mob-admin.js?v=admin-dark-mode-1"></script>
 </body>
 </html>

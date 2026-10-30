@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xmetal-mob-admin-v1';
+const CACHE_NAME = 'xmetal-mob-admin-v3';
 const APP_SHELL = [
     './mob-admin.html',
     './mob-admin-manifest.json',

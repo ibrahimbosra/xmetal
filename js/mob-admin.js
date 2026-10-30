@@ -5,6 +5,8 @@
     var db = window.firebaseDb;
     var auth = window.firebaseAuth;
     var SOURCE = 'mobile-sales';
+    var MOBILE_THEME_KEY = 'xmetalMobAdminTheme';
+    var currentTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
     var items = [];
     var sales = [];
     var currency = { secondaryCurrencySymbol: '﷼', exchangeRate: 3.75 };
@@ -31,6 +33,28 @@
     var helpers = window.XMetalMobileSalesHelpers || {};
 
     var $ = function (id) { return document.getElementById(id); };
+    function applyMobileTheme(theme, persist) {
+        currentTheme = theme === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = currentTheme;
+        var themeColor = document.querySelector('meta[name="theme-color"]');
+        if (themeColor) themeColor.content = currentTheme === 'dark' ? '#0b1220' : '#f4f7fb';
+        var button = $('themeToggleButton');
+        if (button) {
+            var nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            var label = nextTheme === 'light' ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي';
+            button.innerHTML = currentTheme === 'dark' ?
+                '<i class="fas fa-sun" aria-hidden="true"></i>' :
+                '<i class="fas fa-moon" aria-hidden="true"></i>';
+            button.setAttribute('aria-label', label);
+            button.title = label;
+            button.setAttribute('aria-pressed', String(currentTheme === 'dark'));
+        }
+        if (persist) {
+            try { sessionStorage.setItem(MOBILE_THEME_KEY, currentTheme); }
+            catch (error) { console.warn('Unable to persist mobile admin theme for this session.', error); }
+        }
+    }
+    applyMobileTheme(currentTheme, false);
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
     function highlightMatches(value, term) {
         var text = String(value == null ? '' : value), searchTerm = String(term || '').trim();
@@ -85,6 +109,73 @@
         return modal;
     }
 
+    function normalizeImageUrl(value) {
+        if (typeof value !== 'string' || !value.trim()) return '';
+        try {
+            var url = new URL(value.trim());
+            if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname || url.username || url.password) return '';
+            return url.href;
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function validCloudinarySettings(config) {
+        return /^[a-z0-9][a-z0-9-]*$/i.test(config.cloudName || '') &&
+            /^[a-z0-9_-]+$/i.test(config.uploadPreset || '');
+    }
+
+    function uploadProductImage(file, config, onProgress) {
+        var formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', config.uploadPreset);
+        var request = new XMLHttpRequest();
+        request.open('POST', 'https://api.cloudinary.com/v1_1/' + encodeURIComponent(config.cloudName) + '/image/upload');
+        request.timeout = 120000;
+        var settled = false, resolveUpload, rejectUpload;
+        var promise = new Promise(function (resolve, reject) { resolveUpload = resolve; rejectUpload = reject; });
+        function finish(error, url) {
+            if (settled) return;
+            settled = true;
+            request.upload.removeEventListener('progress', handleProgress);
+            request.removeEventListener('load', handleLoad);
+            request.removeEventListener('error', handleError);
+            request.removeEventListener('abort', handleAbort);
+            request.removeEventListener('timeout', handleTimeout);
+            if (error) rejectUpload(error);
+            else resolveUpload(url);
+        }
+        function handleProgress(event) {
+            if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100));
+        }
+        function handleLoad() {
+            var response;
+            try { response = JSON.parse(request.responseText); }
+            catch (error) { finish(new Error('استجابة Cloudinary غير صالحة.')); return; }
+            if (request.status < 200 || request.status >= 300) {
+                finish(new Error(response.error && response.error.message || 'رفض Cloudinary عملية رفع الصورة.'));
+                return;
+            }
+            var secureUrl = normalizeImageUrl(response.secure_url);
+            if (!secureUrl || secureUrl.indexOf('https://') !== 0) {
+                finish(new Error('لم يُرجع Cloudinary رابطًا آمنًا صالحًا للصورة.'));
+                return;
+            }
+            finish(null, secureUrl);
+        }
+        function handleError() { finish(new Error('تعذر الاتصال بخدمة Cloudinary.')); }
+        function handleAbort() { finish(new Error('تم إلغاء رفع الصورة.')); }
+        function handleTimeout() { finish(new Error('انتهت مهلة رفع الصورة. تحقق من الاتصال وحاول مجددًا.')); }
+        request.upload.addEventListener('progress', handleProgress);
+        request.addEventListener('load', handleLoad);
+        request.addEventListener('error', handleError);
+        request.addEventListener('abort', handleAbort);
+        request.addEventListener('timeout', handleTimeout);
+        try { request.send(formData); }
+        catch (error) { finish(new Error('تعذر بدء رفع الصورة.')); }
+        return { promise: promise, abort: function () { if (!settled) request.abort(); } };
+    }
+
     function ensureLocationEditModal() {
         var modal = document.getElementById('locationEditModal');
         if (modal) return modal;
@@ -92,7 +183,7 @@
         modal.id = 'locationEditModal';
         modal.className = 'location-edit-modal';
         modal.hidden = true;
-        modal.innerHTML = '<div class="location-edit-backdrop" data-close-location-edit="true"></div><section class="location-edit-content" role="dialog" aria-modal="true" aria-labelledby="locationEditTitle"><button type="button" class="location-edit-close" aria-label="إغلاق">×</button><p class="eyebrow" id="locationEditEyebrow">تعديل بيانات المنتج</p><h2 id="locationEditTitle">تعديل المنتج</h2><p class="location-edit-product" id="locationEditProduct"></p><form id="locationEditForm"><label for="adminProductName">اسم المنتج</label><input id="adminProductName" type="text" maxlength="200" autocomplete="off" required><div class="admin-edit-fields"><div><label for="adminPurchasePrice">سعر الشراء <span id="adminPurchaseCurrencyLabel">$</span></label><div class="admin-currency-input"><input id="adminPurchasePrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="purchase" aria-label="تبديل عملة سعر الشراء">⇄</button></div></div><div><label for="adminSalePrice">سعر المبيع <span id="adminSaleCurrencyLabel"></span></label><div class="admin-currency-input"><input id="adminSalePrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="sale" aria-label="تبديل عملة سعر المبيع">⇄</button></div></div><div><label for="adminMechanicPrice">سعر الميكانيكي <span id="adminMechanicCurrencyLabel"></span></label><div class="admin-currency-input"><input id="adminMechanicPrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="mechanic" aria-label="تبديل عملة سعر الميكانيكي">⇄</button></div></div><div><label for="adminQuantity">الكمية</label><input id="adminQuantity" type="number" min="0" step="any" required></div></div><div class="admin-location-fields"><div><label for="locationEditInput">الموقع</label><input id="locationEditInput" type="text" maxlength="120" autocomplete="off" placeholder="مثال: رف 12"></div><div><label for="imageUrlEditInput">رابط الصورة</label><input id="imageUrlEditInput" type="url" maxlength="1000" autocomplete="off" dir="ltr" placeholder="https://..."></div></div><p class="input-hint">اترك رابط الصورة فارغًا لإزالة صورة المنتج.</p><div class="location-edit-actions"><button type="button" class="location-edit-cancel">إلغاء</button><button type="submit" class="location-edit-save">حفظ</button></div><p class="form-error" id="locationEditError" role="alert"></p></form></section>';
+        modal.innerHTML = '<div class="location-edit-backdrop" data-close-location-edit="true"></div><section class="location-edit-content" role="dialog" aria-modal="true" aria-labelledby="locationEditTitle"><button type="button" class="location-edit-close" aria-label="إغلاق">×</button><p class="eyebrow" id="locationEditEyebrow">تعديل بيانات المنتج</p><h2 id="locationEditTitle">تعديل المنتج</h2><p class="location-edit-product" id="locationEditProduct"></p><form id="locationEditForm"><label for="adminProductName">اسم المنتج</label><input id="adminProductName" type="text" maxlength="200" autocomplete="off" required><div class="admin-edit-fields"><div><label for="adminPurchasePrice">سعر الشراء <span id="adminPurchaseCurrencyLabel">$</span></label><div class="admin-currency-input"><input id="adminPurchasePrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="purchase" aria-label="تبديل عملة سعر الشراء">⇄</button></div></div><div><label for="adminSalePrice">سعر المبيع <span id="adminSaleCurrencyLabel"></span></label><div class="admin-currency-input"><input id="adminSalePrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="sale" aria-label="تبديل عملة سعر المبيع">⇄</button></div></div><div><label for="adminMechanicPrice">سعر الميكانيكي <span id="adminMechanicCurrencyLabel"></span></label><div class="admin-currency-input"><input id="adminMechanicPrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="mechanic" aria-label="تبديل عملة سعر الميكانيكي">⇄</button></div></div><div><label for="adminQuantity">الكمية</label><input id="adminQuantity" type="number" min="0" step="any" required></div></div><div class="admin-location-fields"><div><label for="locationEditInput">الموقع</label><input id="locationEditInput" type="text" maxlength="120" autocomplete="off" placeholder="مثال: رف 12"></div><div class="admin-image-field"><div class="admin-image-label-row"><label for="imageUrlEditInput">رابط الصورة</label><button type="button" class="admin-image-upload-button" aria-label="إضافة صورة" title="رفع صورة"><i class="fas fa-plus" aria-hidden="true"></i></button><input class="admin-image-file-input" type="file" accept="image/jpeg,image/png,image/webp" hidden></div><input id="imageUrlEditInput" type="url" maxlength="1000" autocomplete="off" dir="ltr" placeholder="https://..."><small class="admin-image-upload-status" role="status" aria-live="polite"></small><div class="admin-image-preview" hidden><img alt="معاينة صورة المنتج"><span></span></div></div></div><p class="input-hint">اترك رابط الصورة فارغًا لإزالة صورة المنتج.</p><div class="location-edit-actions"><button type="button" class="location-edit-cancel">إلغاء</button><button type="submit" class="location-edit-save">حفظ</button></div><p class="form-error" id="locationEditError" role="alert"></p></form></section>';
         modal.querySelector('.input-hint').remove();
         ['adminSalePrice', 'adminMechanicPrice'].forEach(function (inputId) {
             var label = modal.querySelector('label[for="' + inputId + '"]'), profit = document.createElement('small');
@@ -129,7 +220,16 @@
             cancelDeleteButton.hidden = !active;
             confirmDeleteButton.hidden = !active;
         };
-        var close = function () { modal.hidden = true; };
+        var close = function () {
+            modal.dataset.imageUploadToken = String((Number(modal.dataset.imageUploadToken) || 0) + 1);
+            if (modal._abortImageUpload) modal._abortImageUpload();
+            modal._abortImageUpload = null;
+            modal.querySelector('.admin-image-upload-button').disabled = false;
+            modal.querySelector('#imageUrlEditInput').disabled = false;
+            modal.querySelector('.location-edit-save').disabled = false;
+            modal.querySelector('.admin-image-file-input').value = '';
+            modal.hidden = true;
+        };
         modal.querySelector('.location-edit-close').addEventListener('click', close);
         modal.querySelector('.location-edit-cancel').addEventListener('click', close);
         deleteButton.addEventListener('click', function () {
@@ -143,6 +243,10 @@
         confirmDeleteButton.addEventListener('click', async function () {
             var itemId = modal.dataset.itemId, error = modal.querySelector('#locationEditError');
             if (!itemId || modal.dataset.mode !== 'edit') return;
+            if (modal._abortImageUpload || modal.querySelector('.admin-image-upload-button').disabled) {
+                error.textContent = 'انتظر اكتمال رفع الصورة قبل حذف المنتج.';
+                return;
+            }
             error.textContent = '';
             confirmDeleteButton.disabled = true;
             cancelDeleteButton.disabled = true;
@@ -174,6 +278,89 @@
                 updateAdminProfitLabels(modal);
             });
         });
+        var imageUrlInput = modal.querySelector('#imageUrlEditInput');
+        var imageFileInput = modal.querySelector('.admin-image-file-input');
+        var imageUploadButton = modal.querySelector('.admin-image-upload-button');
+        var imageUploadStatus = modal.querySelector('.admin-image-upload-status');
+        var imagePreview = modal.querySelector('.admin-image-preview');
+        var imagePreviewElement = imagePreview.querySelector('img');
+        var imagePreviewText = imagePreview.querySelector('span');
+        var imageSaveButton = modal.querySelector('.location-edit-save');
+        var updateImagePreview = function () {
+            var url = normalizeImageUrl(imageUrlInput.value);
+            if (!imageUrlInput.value.trim()) {
+                imagePreview.hidden = true;
+                imagePreviewElement.removeAttribute('src');
+                return;
+            }
+            imagePreview.hidden = false;
+            imagePreviewElement.hidden = false;
+            imagePreviewText.textContent = url ? 'جارٍ تحميل المعاينة...' : 'أدخل رابط صورة صحيحًا يبدأ بـ http أو https.';
+            imagePreviewElement.onload = function () { imagePreviewText.textContent = ''; };
+            imagePreviewElement.onerror = function () { imagePreviewElement.hidden = true; imagePreviewText.textContent = 'تعذر تحميل الصورة من هذا الرابط.'; };
+            if (url) imagePreviewElement.src = url;
+            else imagePreviewElement.removeAttribute('src');
+        };
+        imageUrlInput.addEventListener('input', updateImagePreview);
+        imageUploadButton.addEventListener('click', function () { imageFileInput.click(); });
+        imageFileInput.addEventListener('change', async function () {
+            var file = imageFileInput.files && imageFileInput.files[0];
+            if (!file) return;
+            if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) === -1) {
+                imageUploadStatus.textContent = 'الصيغ المسموحة JPEG وPNG وWebP فقط.';
+                imageFileInput.value = '';
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                imageUploadStatus.textContent = 'يجب ألا يتجاوز حجم الصورة 10 MiB.';
+                imageFileInput.value = '';
+                return;
+            }
+            if (!auth || !auth.currentUser) {
+                imageUploadStatus.textContent = 'يجب تسجيل الدخول قبل رفع الصورة.';
+                imageFileInput.value = '';
+                return;
+            }
+            var token = String((Number(modal.dataset.imageUploadToken) || 0) + 1);
+            modal.dataset.imageUploadToken = token;
+            imageUploadButton.disabled = true;
+            imageUrlInput.disabled = true;
+            imageSaveButton.disabled = true;
+            imageUploadStatus.textContent = 'جارٍ تحميل إعدادات Cloudinary...';
+            try {
+                var settingsSnapshot = await db.collection('settings').doc('cloudinary').get();
+                if (modal.hidden || modal.dataset.imageUploadToken !== token) return;
+                var settingsData = settingsSnapshot.exists ? settingsSnapshot.data() : {};
+                var config = {
+                    cloudName: settingsData && typeof settingsData.cloudName === 'string' ? settingsData.cloudName.trim() : '',
+                    uploadPreset: settingsData && typeof settingsData.uploadPreset === 'string' ? settingsData.uploadPreset.trim() : ''
+                };
+                if (!validCloudinarySettings(config)) throw new Error('إعدادات Cloudinary غير جاهزة. احفظها من إعدادات النظام الأساسية أولًا.');
+                imageUploadStatus.textContent = 'جارٍ رفع الصورة...';
+                var request = uploadProductImage(file, config, function (percent) {
+                    if (!modal.hidden && modal.dataset.imageUploadToken === token) imageUploadStatus.textContent = 'جارٍ رفع الصورة... ' + percent + '%';
+                });
+                modal._abortImageUpload = request.abort;
+                var secureUrl = await request.promise;
+                if (modal.hidden || modal.dataset.imageUploadToken !== token) return;
+                imageUrlInput.value = secureUrl;
+                updateImagePreview();
+                imageUploadStatus.textContent = 'تم رفع الصورة. احفظ المنتج لإتمام التغيير.';
+            } catch (uploadError) {
+                if (!modal.hidden && modal.dataset.imageUploadToken === token) {
+                    console.error('Mobile admin product image upload failed:', uploadError);
+                    imageUploadStatus.textContent = uploadError.message || 'تعذر رفع الصورة إلى Cloudinary.';
+                }
+            } finally {
+                if (modal.dataset.imageUploadToken === token) {
+                    modal._abortImageUpload = null;
+                    imageUploadButton.disabled = false;
+                    imageUrlInput.disabled = false;
+                    imageSaveButton.disabled = false;
+                    imageFileInput.value = '';
+                }
+            }
+        });
         modal.querySelectorAll('#adminPurchasePrice, #adminSalePrice, #adminMechanicPrice').forEach(function (input) { input.addEventListener('input', function () { updateAdminProfitLabels(modal); }); });
         modal.querySelector('#locationEditForm').addEventListener('submit', async function (event) {
             event.preventDefault();
@@ -182,10 +369,19 @@
             var isCreate = modal.dataset.mode === 'create';
             if (!item && !isCreate) return;
             error.textContent = '';
+            if (modal._abortImageUpload) {
+                error.textContent = 'انتظر اكتمال رفع الصورة قبل الحفظ.';
+                return;
+            }
             save.disabled = true;
             try {
-                var name = modal.querySelector('#adminProductName').value.trim(), location = input.value.trim(), imageUrl = modal.querySelector('#imageUrlEditInput').value.trim();
+                var name = modal.querySelector('#adminProductName').value.trim(), location = input.value.trim(), imageInput = modal.querySelector('#imageUrlEditInput').value.trim(), imageUrl = normalizeImageUrl(imageInput);
                 var purchasePrice = number(modal.querySelector('#adminPurchasePrice').value), salePrice = number(modal.querySelector('#adminSalePrice').value), mechanicPriceValue = number(modal.querySelector('#adminMechanicPrice').value), quantity = number(modal.querySelector('#adminQuantity').value);
+                if (imageInput && !imageUrl) {
+                    error.textContent = 'رابط الصورة غير صالح. استخدم رابطًا يبدأ بـ http:// أو https://.';
+                    save.disabled = false;
+                    return;
+                }
                 if (modal.dataset.purchaseCurrency === 'secondary') purchasePrice = primary(purchasePrice);
                 if (item && window.PriceHelpers && window.PriceHelpers.getPrimaryPriceFromInput) {
                     salePrice = window.PriceHelpers.getPrimaryPriceFromInput(salePrice, item.salePrice, modal.dataset.saleCurrency === 'secondary', currency.exchangeRate);
@@ -201,10 +397,14 @@
                 }
                 var images = Array.isArray(item && item.images) ? item.images.map(function (image) { return image && typeof image === 'object' ? Object.assign({}, image) : image; }) : [];
                 if (imageUrl) {
-                    var primaryImage = images.find(function (image) { return image && image.isPrimary; }) || images.find(function (image) { return image && image.url; });
-                    if (primaryImage && typeof primaryImage === 'object') primaryImage.url = imageUrl;
+                    var primaryIndex = images.findIndex(function (image) { return image && image.isPrimary; });
+                    if (primaryIndex === -1) primaryIndex = images.findIndex(function (image) { return image && typeof image === 'object' && image.url; });
+                    if (primaryIndex === -1) primaryIndex = images.findIndex(function (image) { return typeof image === 'string' && image.trim(); });
+                    if (primaryIndex !== -1 && typeof images[primaryIndex] === 'object') images[primaryIndex].url = imageUrl;
+                    else if (primaryIndex !== -1) images[primaryIndex] = { url: imageUrl, isPrimary: true };
                     else images.unshift({ url: imageUrl, isPrimary: true });
-                    images.forEach(function (image, index) { if (image && typeof image === 'object') image.isPrimary = image === primaryImage || (!primaryImage && index === 0); });
+                    var primaryImageIndex = primaryIndex === -1 ? 0 : primaryIndex;
+                    images.forEach(function (image, index) { if (image && typeof image === 'object') image.isPrimary = index === primaryImageIndex; });
                 } else {
                     images = [];
                 }
@@ -254,6 +454,9 @@
     function openLocationEdit(item) {
         var modal = ensureLocationEditModal();
         var content = modal.querySelector('.location-edit-content');
+        modal.querySelector('.admin-image-upload-button').disabled = false;
+        modal.querySelector('#imageUrlEditInput').disabled = false;
+        modal.querySelector('.location-edit-save').disabled = false;
         modal.dataset.mode = 'edit';
         modal.dataset.itemId = item.id;
         modal.querySelector('.location-edit-actions').classList.remove('is-create');
@@ -272,8 +475,11 @@
         modal.querySelector('#locationEditProduct').hidden = true;
         modal.querySelector('#adminProductName').value = item.name || '';
         modal.querySelector('#locationEditInput').value = item.location || '';
-        var primaryImage = Array.isArray(item.images) ? (item.images.find(function (image) { return image && image.isPrimary; }) || item.images.find(function (image) { return image && image.url; })) : null;
-        modal.querySelector('#imageUrlEditInput').value = primaryImage && primaryImage.url ? primaryImage.url : '';
+        var primaryImage = Array.isArray(item.images) ? (item.images.find(function (image) { return image && image.isPrimary; }) || item.images.find(function (image) { return image && typeof image === 'object' && image.url; }) || item.images.find(function (image) { return typeof image === 'string' && image.trim(); })) : null;
+        modal.querySelector('#imageUrlEditInput').value = normalizeImageUrl(typeof primaryImage === 'string' ? primaryImage : primaryImage && primaryImage.url);
+        modal.querySelector('#imageUrlEditInput').dispatchEvent(new Event('input'));
+        modal.querySelector('.admin-image-upload-status').textContent = '';
+        modal.querySelector('.admin-image-file-input').value = '';
         modal.dataset.purchaseCurrency = 'primary';
         modal.dataset.saleCurrency = 'secondary';
         modal.dataset.mechanicCurrency = 'secondary';
@@ -295,6 +501,9 @@
 
     function openNewProduct() {
         var modal = ensureLocationEditModal();
+        modal.querySelector('.admin-image-upload-button').disabled = false;
+        modal.querySelector('#imageUrlEditInput').disabled = false;
+        modal.querySelector('.location-edit-save').disabled = false;
         modal.dataset.mode = 'create';
         modal.dataset.itemId = '';
         modal.querySelector('.location-edit-actions').classList.add('is-create');
@@ -314,6 +523,9 @@
         modal.querySelector('#adminProductName').value = '';
         modal.querySelector('#locationEditInput').value = '';
         modal.querySelector('#imageUrlEditInput').value = '';
+        modal.querySelector('#imageUrlEditInput').dispatchEvent(new Event('input'));
+        modal.querySelector('.admin-image-upload-status').textContent = '';
+        modal.querySelector('.admin-image-file-input').value = '';
         modal.dataset.purchaseCurrency = 'primary';
         modal.dataset.saleCurrency = 'secondary';
         modal.dataset.mechanicCurrency = 'secondary';
@@ -1169,6 +1381,9 @@
         updateCustomScrollbar();
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
+    $('themeToggleButton').addEventListener('click', function () {
+        applyMobileTheme(currentTheme === 'dark' ? 'light' : 'dark', true);
+    });
     $('productsGrid').addEventListener('click', function (event) {
         var locationButton = event.target.closest('[data-edit-product]');
         if (locationButton) {
