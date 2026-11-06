@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="icons/icon-192.svg">
     <title>X METAL - نقطة البيع</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/mobile-sales.css?v=employee-install-1">
+    <link rel="stylesheet" href="css/mobile-sales.css?v=category-filter-sticky-6">
 </head>
 <body>
     <div class="splash-screen" id="splashScreen" aria-label="جاري تشغيل نقطة البيع">
@@ -47,17 +47,21 @@
         <section class="toolbar" aria-label="البحث في المنتجات">
             <label class="search-box">
                 <span class="search-icon" aria-hidden="true">⌕</span>
-                <input id="productSearch" type="search" placeholder="ابحث عن منتج" autocomplete="off">
+                <input id="productSearch" type="text" inputmode="search" enterkeyhint="search" placeholder="ابحث عن منتج" autocomplete="off">
+                <button class="search-clear-button" id="clearProductSearch" type="button" aria-label="مسح البحث" hidden>×</button>
             </label>
             <button class="install-button" id="installButton" type="button" aria-label="تثبيت التطبيق" title="تثبيت التطبيق"><i class="fas fa-download" aria-hidden="true"></i></button>
             <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل">السجل</button>
         </section>
 
-        <nav class="product-filters" id="productFilters" aria-label="تصفية المنتجات">
-            <button class="product-filter" type="button" data-product-filter="all"><span>كل المنتجات</span><span class="filter-count" data-filter-count="all">0</span></button>
-            <button class="product-filter active" type="button" data-product-filter="available"><span>المتوفر</span><span class="filter-count" data-filter-count="available">0</span></button>
-            <button class="product-filter" type="button" data-product-filter="expired"><span>المنتهية</span><span class="filter-count" data-filter-count="expired">0</span></button>
-        </nav>
+        <div class="sticky-product-filters">
+            <nav class="product-filters" id="productFilters" aria-label="تصفية المنتجات">
+                <button class="product-filter" type="button" data-product-filter="all"><span>كل المنتجات</span><span class="filter-count" data-filter-count="all">0</span></button>
+                <button class="product-filter active" type="button" data-product-filter="available"><span>المتوفر</span><span class="filter-count" data-filter-count="available">0</span></button>
+                <button class="product-filter" type="button" data-product-filter="expired"><span>المنتهية</span><span class="filter-count" data-filter-count="expired">0</span></button>
+            </nav>
+            <nav class="category-filters" id="categoryFilters" aria-label="تصفية الفئات" dir="rtl"></nav>
+        </div>
         <div class="search-summary" id="searchSummary" aria-live="polite" hidden></div>
         <section class="products-grid" id="productsGrid" aria-live="polite"></section>
         <div class="empty-state" id="productsEmpty" hidden>لا توجد منتجات متاحة</div>
@@ -112,6 +116,6 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/mobile-sales-helpers.js"></script>
     <script src="js/pricingHelpers.js?v=20260929"></script>
-    <script src="js/mobile-sales.js?v=20260929"></script>
+    <script src="js/mobile-sales.js?v=category-filter-bar-1"></script>
 </body>
 </html>

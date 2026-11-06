@@ -8,6 +8,10 @@
     var MOBILE_THEME_KEY = 'xmetalMobAdminTheme';
     var currentTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
     var items = [];
+    var categories = [];
+    var categoriesLoaded = false;
+    var productsLoaded = false;
+    var activeProductCategoryId = '';
     var sales = [];
     var currency = { secondaryCurrencySymbol: '﷼', exchangeRate: 3.75 };
     var selectedItem = null;
@@ -21,6 +25,10 @@
     var lastSyncAt = 0;
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobAdminCacheV1';
+    var UI_STATE_KEY = CACHE_KEY + ':ui';
+    var pendingUiState = null;
+    var uiStateRestored = false;
+    var uiStateSaveTimer = null;
     var installPrompt = null;
     var historyStartDate = null;
     var historyLiveStartDate = null;
@@ -30,7 +38,13 @@
     var salePriceManuallyEdited = false;
     var saleDefaultPrice = null;
     var userDisplayNameMap = {};
+    var userDisplayNameMapPromise = null;
+    var userDisplayNameMapFetchedAt = 0;
+    var USER_DISPLAY_NAMES_CACHE_KEY = 'xmetalMobAdminDisplayNamesCacheV1';
     var helpers = window.XMetalMobileSalesHelpers || {};
+    var managedCategoryId = '';
+    var managedCategorySelection = new Set();
+    var newCategoryProductSelection = new Set();
 
     var $ = function (id) { return document.getElementById(id); };
     function applyMobileTheme(theme, persist) {
@@ -97,7 +111,7 @@
         modal.id = 'productImageModal';
         modal.className = 'product-image-modal';
         modal.hidden = true;
-        modal.innerHTML = '<div class="product-image-modal-backdrop" data-close-product-image="true"></div><div class="product-image-modal-content" role="dialog" aria-modal="true"><button type="button" class="product-image-modal-close" aria-label="إغلاق الصورة">×</button><img alt="صورة المنتج" src=""></div>';
+        modal.innerHTML = '<div class="product-image-modal-backdrop" data-close-product-image="true"></div><div class="product-image-modal-content" role="dialog" aria-modal="true"><button type="button" class="product-image-modal-close" aria-label="إغلاق الصورة">×</button><button type="button" class="product-image-replace" aria-label="استبدال الصورة" title="استبدال الصورة"><i class="fas fa-camera" aria-hidden="true"></i></button><img alt="صورة المنتج" src=""></div>';
         document.body.appendChild(modal);
         modal.querySelector('.product-image-modal-close').addEventListener('click', function () { modal.hidden = true; });
         modal.addEventListener('click', function (event) {
@@ -106,7 +120,82 @@
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && !modal.hidden) modal.hidden = true;
         });
+        modal.querySelector('.product-image-replace').addEventListener('click', function () {
+            var item = items.find(function (entry) { return entry.id === modal.dataset.itemId; });
+            if (item) openProductImagePicker(item, true);
+        });
         return modal;
+    }
+
+    function openProductImagePicker(item, showImageAfterSave) {
+        if (!item || !item.id) return;
+        var imageModal = document.getElementById('productImageModal');
+        if (imageModal) imageModal.hidden = true;
+        var editor = ensureLocationEditModal();
+        openLocationEdit(item);
+        editor.dataset.showImageAfterSave = showImageAfterSave ? 'true' : 'false';
+        editor.querySelector('.admin-image-file-input').value = '';
+        editor.querySelector('.admin-image-upload-button').click();
+    }
+
+    function ensureProductLocationModal() {
+        var modal = document.getElementById('productLocationModal');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.id = 'productLocationModal';
+        modal.className = 'product-location-modal';
+        modal.hidden = true;
+        modal.innerHTML = '<div class="product-location-backdrop" data-close-product-location="true"></div><section class="product-location-content" role="dialog" aria-modal="true" aria-labelledby="productLocationTitle"><button type="button" class="product-location-close" aria-label="إغلاق">×</button><p class="eyebrow">مكان القطعة</p><h2 id="productLocationTitle"></h2><p class="product-location-name"></p><form><label for="productLocationInput">مكان القطعة</label><input id="productLocationInput" type="text" maxlength="120" autocomplete="off" placeholder="مثال: رف 12"><div class="product-location-actions"><button type="button" class="product-location-cancel">إلغاء</button><button type="submit" class="product-location-save">حفظ</button></div><p class="form-error" role="alert"></p></form></section>';
+        document.body.appendChild(modal);
+        var input = modal.querySelector('#productLocationInput');
+        var saveButton = modal.querySelector('.product-location-save');
+        var close = function () { modal.hidden = true; };
+        modal.querySelector('.product-location-close').addEventListener('click', close);
+        modal.querySelector('.product-location-cancel').addEventListener('click', close);
+        modal.addEventListener('click', function (event) {
+            if (event.target.hasAttribute('data-close-product-location')) close();
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !modal.hidden) close();
+        });
+        modal.querySelector('form').addEventListener('submit', async function (event) {
+            event.preventDefault();
+            var item = items.find(function (entry) { return entry.id === modal.dataset.itemId; });
+            if (!item || saveButton.disabled) return;
+            var error = modal.querySelector('.form-error');
+            error.textContent = '';
+            saveButton.disabled = true;
+            try {
+                var location = input.value.trim();
+                await db.collection('items').doc(item.id).update({ location: location, updatedAt: Date.now() });
+                item.location = location;
+                saveCache();
+                close();
+                renderProducts();
+                notify(location ? 'تم حفظ مكان القطعة' : 'تم حذف مكان القطعة');
+            } catch (saveError) {
+                error.textContent = 'تعذر حفظ مكان القطعة حاليًا. حاول مجددًا.';
+                console.error(saveError);
+            } finally {
+                saveButton.disabled = false;
+            }
+        });
+        return modal;
+    }
+
+    function openProductLocationEditor(item) {
+        if (!item || !item.id) return;
+        var modal = ensureProductLocationModal();
+        var hasLocation = Boolean(item.location && String(item.location).trim());
+        modal.dataset.itemId = item.id;
+        modal.querySelector('#productLocationTitle').textContent = hasLocation ? 'تعديل مكان القطعة' : 'إضافة مكان القطعة';
+        modal.querySelector('.product-location-name').textContent = item.name || 'منتج';
+        modal.querySelector('#productLocationInput').value = hasLocation ? String(item.location).trim() : '';
+        modal.querySelector('.product-location-save').textContent = hasLocation ? 'حفظ التعديل' : 'حفظ';
+        modal.querySelector('.product-location-save').disabled = false;
+        modal.querySelector('.form-error').textContent = '';
+        modal.hidden = false;
+        requestAnimationFrame(function () { modal.querySelector('#productLocationInput').focus(); });
     }
 
     function normalizeImageUrl(value) {
@@ -125,9 +214,118 @@
             /^[a-z0-9_-]+$/i.test(config.uploadPreset || '');
     }
 
-    function uploadProductImage(file, config, onProgress) {
+    var compressedProductImageBrand = Symbol('compressed-product-image');
+    var maxCompressedProductImageSize = 100 * 1024;
+    var maxProductImageDimension = 1000;
+
+    async function decodeProductImage(file) {
+        if (typeof createImageBitmap === 'function') {
+            var bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+            return { source: bitmap, width: bitmap.width, height: bitmap.height, close: function () { bitmap.close(); } };
+        }
+        var objectUrl = URL.createObjectURL(file);
+        var image = new Image();
+        image.src = objectUrl;
+        try {
+            await image.decode();
+        } catch (error) {
+            image.removeAttribute('src');
+            URL.revokeObjectURL(objectUrl);
+            throw error;
+        }
+        return {
+            source: image,
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+            close: function () {
+                image.removeAttribute('src');
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }
+
+    function canvasToJpegBlob(canvas, quality) {
+        return new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) {
+                if (blob) resolve(blob);
+                else reject(new Error('تعذر إنشاء نسخة JPEG من الصورة.'));
+            }, 'image/jpeg', quality);
+        });
+    }
+
+    async function compressProductImage(file, isCancelled) {
+        var decoded;
+        try {
+            decoded = await decodeProductImage(file);
+        } catch (error) {
+            throw new Error('تعذر فتح الصورة لضغطها. جرّب صورة أخرى بصيغة JPEG أو PNG أو WebP.');
+        }
+        if (!Number.isFinite(decoded.width) || !Number.isFinite(decoded.height) || decoded.width < 1 || decoded.height < 1) {
+            decoded.close();
+            throw new Error('تعذر تحديد أبعاد الصورة لضغطها.');
+        }
+        var scale = Math.min(1, maxProductImageDimension / decoded.width, maxProductImageDimension / decoded.height);
+        var width = Math.max(1, Math.round(decoded.width * scale));
+        var height = Math.max(1, Math.round(decoded.height * scale));
+        var canvas = document.createElement('canvas');
+        var context = canvas.getContext('2d', { alpha: false });
+        if (!context) {
+            decoded.close();
+            throw new Error('تعذر تجهيز الصورة لضغطها على هذا الجهاز.');
+        }
+        var quality = 0.86;
+        try {
+            for (var attempt = 0; attempt < 80; attempt += 1) {
+                if (isCancelled()) throw new Error('تم إلغاء ضغط الصورة.');
+                canvas.width = width;
+                canvas.height = height;
+                context.fillStyle = '#fff';
+                context.fillRect(0, 0, width, height);
+                context.drawImage(decoded.source, 0, 0, width, height);
+                var blob = await canvasToJpegBlob(canvas, quality);
+                if (blob.size <= maxCompressedProductImageSize) {
+                    var baseName = file.name.replace(/\.[^.]+$/, '') || 'product-image';
+                    var compressedFile = new File([blob], baseName + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+                    if (compressedFile.size <= maxCompressedProductImageSize) {
+                        return { file: compressedFile, [compressedProductImageBrand]: true };
+                    }
+                    throw new Error('تعذر ضغط الصورة إلى 100 KB أو أقل. اختر صورة أصغر أو أقل دقة.');
+                }
+                var sizeRatio = Math.sqrt(maxCompressedProductImageSize / blob.size);
+                var nextQuality = quality * Math.min(0.9, sizeRatio * 0.9);
+                if (nextQuality >= 0.12) {
+                    quality = nextQuality;
+                } else {
+                    var resizeFactor = Math.max(0.5, Math.min(0.85, sizeRatio * 0.9));
+                    var nextScale = Math.min(width / decoded.width, height / decoded.height) * resizeFactor;
+                    var nextWidth = Math.max(1, Math.round(decoded.width * nextScale));
+                    var nextHeight = Math.max(1, Math.round(decoded.height * nextScale));
+                    if (nextWidth === width && nextHeight === height) {
+                        throw new Error('تعذر ضغط الصورة إلى 100 KB أو أقل. اختر صورة أصغر أو أقل دقة.');
+                    }
+                    width = nextWidth;
+                    height = nextHeight;
+                    quality = 0.86;
+                }
+                await new Promise(function (resolve) { setTimeout(resolve, 0); });
+            }
+            throw new Error('تعذر ضغط الصورة إلى 100 KB أو أقل. اختر صورة أصغر أو أقل دقة.');
+        } catch (error) {
+            if (error instanceof Error && /^[\u0600-\u06FF]/.test(error.message)) throw error;
+            throw new Error('حدث خطأ أثناء ضغط الصورة. جرّب صورة أخرى.');
+        } finally {
+            canvas.width = 0;
+            canvas.height = 0;
+            decoded.close();
+        }
+    }
+
+    function uploadProductImage(image, config, onProgress) {
+        if (!image || image[compressedProductImageBrand] !== true || image.file.type !== 'image/jpeg' || image.file.size > maxCompressedProductImageSize) {
+            throw new Error('تم إيقاف الرفع لأن الصورة المضغوطة يجب ألا تتجاوز 100 KB.');
+        }
         var formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', image.file);
         formData.append('upload_preset', config.uploadPreset);
         var request = new XMLHttpRequest();
         request.open('POST', 'https://api.cloudinary.com/v1_1/' + encodeURIComponent(config.cloudName) + '/image/upload');
@@ -185,6 +383,32 @@
         modal.hidden = true;
         modal.innerHTML = '<div class="location-edit-backdrop" data-close-location-edit="true"></div><section class="location-edit-content" role="dialog" aria-modal="true" aria-labelledby="locationEditTitle"><button type="button" class="location-edit-close" aria-label="إغلاق">×</button><p class="eyebrow" id="locationEditEyebrow">تعديل بيانات المنتج</p><h2 id="locationEditTitle">تعديل المنتج</h2><p class="location-edit-product" id="locationEditProduct"></p><form id="locationEditForm"><label for="adminProductName">اسم المنتج</label><input id="adminProductName" type="text" maxlength="200" autocomplete="off" required><div class="admin-edit-fields"><div><label for="adminPurchasePrice">سعر الشراء <span id="adminPurchaseCurrencyLabel">$</span></label><div class="admin-currency-input"><input id="adminPurchasePrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="purchase" aria-label="تبديل عملة سعر الشراء">⇄</button></div></div><div><label for="adminSalePrice">سعر المبيع <span id="adminSaleCurrencyLabel"></span></label><div class="admin-currency-input"><input id="adminSalePrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="sale" aria-label="تبديل عملة سعر المبيع">⇄</button></div></div><div><label for="adminMechanicPrice">سعر الميكانيكي <span id="adminMechanicCurrencyLabel"></span></label><div class="admin-currency-input"><input id="adminMechanicPrice" type="number" min="0" step="any" required><button type="button" data-admin-currency-toggle="mechanic" aria-label="تبديل عملة سعر الميكانيكي">⇄</button></div></div><div><label for="adminQuantity">الكمية</label><input id="adminQuantity" type="number" min="0" step="any" required></div></div><div class="admin-location-fields"><div><label for="locationEditInput">الموقع</label><input id="locationEditInput" type="text" maxlength="120" autocomplete="off" placeholder="مثال: رف 12"></div><div class="admin-image-field"><div class="admin-image-label-row"><label for="imageUrlEditInput">رابط الصورة</label><button type="button" class="admin-image-upload-button" aria-label="إضافة صورة" title="رفع صورة"><i class="fas fa-plus" aria-hidden="true"></i></button><input class="admin-image-file-input" type="file" accept="image/jpeg,image/png,image/webp" hidden></div><input id="imageUrlEditInput" type="url" maxlength="1000" autocomplete="off" dir="ltr" placeholder="https://..."><small class="admin-image-upload-status" role="status" aria-live="polite"></small><div class="admin-image-preview" hidden><img alt="معاينة صورة المنتج"><span></span></div></div></div><p class="input-hint">اترك رابط الصورة فارغًا لإزالة صورة المنتج.</p><div class="location-edit-actions"><button type="button" class="location-edit-cancel">إلغاء</button><button type="submit" class="location-edit-save">حفظ</button></div><p class="form-error" id="locationEditError" role="alert"></p></form></section>';
         modal.querySelector('.input-hint').remove();
+        var categoryField = document.createElement('div');
+        categoryField.className = 'admin-category-field';
+        categoryField.innerHTML = '<label for="adminProductCategoryId">الفئة</label><select id="adminProductCategoryId"></select>';
+        var imageField = modal.querySelector('.admin-image-field');
+        var imageUrlInput = modal.querySelector('#imageUrlEditInput');
+        var imageFileInput = modal.querySelector('.admin-image-file-input');
+        var imageUploadButton = modal.querySelector('.admin-image-upload-button');
+        var imageLabel = modal.querySelector('.admin-image-label-row label');
+        var imageUrlRow = document.createElement('div');
+        imageUrlRow.className = 'admin-image-url-row';
+        var imageClearButton = document.createElement('button');
+        imageClearButton.type = 'button';
+        imageClearButton.className = 'admin-image-clear-button';
+        imageClearButton.setAttribute('aria-label', 'حذف رابط الصورة');
+        imageClearButton.title = 'حذف رابط الصورة';
+        imageClearButton.innerHTML = '<i class="fas fa-trash" aria-hidden="true"></i>';
+        var imageActions = document.createElement('div');
+        imageActions.className = 'admin-image-actions';
+        imageActions.append(imageUploadButton, imageClearButton);
+        imageUrlRow.append(imageUrlInput, imageActions);
+        imageField.querySelector('.admin-image-label-row').replaceWith(imageLabel);
+        imageField.insertBefore(imageUrlRow, imageField.querySelector('.admin-image-upload-status'));
+        imageUrlRow.appendChild(imageFileInput);
+        var locationFields = modal.querySelector('.admin-location-fields');
+        locationFields.insertBefore(categoryField, imageField);
+        renderAdminProductCategorySelect('');
         ['adminSalePrice', 'adminMechanicPrice'].forEach(function (inputId) {
             var label = modal.querySelector('label[for="' + inputId + '"]'), profit = document.createElement('small');
             profit.className = 'admin-live-profit';
@@ -220,15 +444,19 @@
             cancelDeleteButton.hidden = !active;
             confirmDeleteButton.hidden = !active;
         };
+        var discardPendingImage = null;
         var close = function () {
             modal.dataset.imageUploadToken = String((Number(modal.dataset.imageUploadToken) || 0) + 1);
             if (modal._abortImageUpload) modal._abortImageUpload();
             modal._abortImageUpload = null;
+            if (discardPendingImage) discardPendingImage();
             modal.querySelector('.admin-image-upload-button').disabled = false;
             modal.querySelector('#imageUrlEditInput').disabled = false;
             modal.querySelector('.location-edit-save').disabled = false;
             modal.querySelector('.admin-image-file-input').value = '';
+            if (clearLocalImagePreview) clearLocalImagePreview();
             modal.hidden = true;
+            saveUiState();
         };
         modal.querySelector('.location-edit-close').addEventListener('click', close);
         modal.querySelector('.location-edit-cancel').addEventListener('click', close);
@@ -255,7 +483,10 @@
                 var itemIndex = items.findIndex(function (item) { return item.id === itemId; });
                 if (itemIndex !== -1) items.splice(itemIndex, 1);
                 saveCache();
+                if (discardPendingImage) discardPendingImage();
+                if (clearLocalImagePreview) clearLocalImagePreview();
                 modal.hidden = true;
+                saveUiState();
                 setDeleteConfirmation(false);
                 renderProducts();
                 notify('تم حذف المنتج');
@@ -278,15 +509,39 @@
                 updateAdminProfitLabels(modal);
             });
         });
-        var imageUrlInput = modal.querySelector('#imageUrlEditInput');
         var imageFileInput = modal.querySelector('.admin-image-file-input');
-        var imageUploadButton = modal.querySelector('.admin-image-upload-button');
         var imageUploadStatus = modal.querySelector('.admin-image-upload-status');
         var imagePreview = modal.querySelector('.admin-image-preview');
         var imagePreviewElement = imagePreview.querySelector('img');
         var imagePreviewText = imagePreview.querySelector('span');
+        var imagePreviewOpenButton = document.createElement('button');
+        imagePreviewOpenButton.type = 'button';
+        imagePreviewOpenButton.className = 'admin-image-preview-open';
+        imagePreviewOpenButton.setAttribute('aria-label', 'تكبير معاينة الصورة');
+        imagePreviewOpenButton.appendChild(imagePreviewElement);
+        imagePreview.replaceChildren(imagePreviewOpenButton, imagePreviewText);
+        imageUrlRow.appendChild(imagePreview);
         var imageSaveButton = modal.querySelector('.location-edit-save');
+        var localImagePreviewUrl = '';
+        var pendingCompressedImage = null;
+        var uploadedPendingImageUrl = '';
+        var clearLocalImagePreview = function () {
+            if (!localImagePreviewUrl) return;
+            URL.revokeObjectURL(localImagePreviewUrl);
+            localImagePreviewUrl = '';
+        };
+        discardPendingImage = function () {
+            modal.dataset.imageSelectionToken = String((Number(modal.dataset.imageSelectionToken) || 0) + 1);
+            pendingCompressedImage = null;
+            uploadedPendingImageUrl = '';
+            clearLocalImagePreview();
+        };
+        modal._resetPendingImage = discardPendingImage;
         var updateImagePreview = function () {
+            if (pendingCompressedImage) {
+                discardPendingImage();
+                imageUploadStatus.textContent = '';
+            } else clearLocalImagePreview();
             var url = normalizeImageUrl(imageUrlInput.value);
             if (!imageUrlInput.value.trim()) {
                 imagePreview.hidden = true;
@@ -301,8 +556,41 @@
             if (url) imagePreviewElement.src = url;
             else imagePreviewElement.removeAttribute('src');
         };
+        var showCompressedImagePreview = function (file) {
+            clearLocalImagePreview();
+            localImagePreviewUrl = URL.createObjectURL(file);
+            var previewUrl = localImagePreviewUrl;
+            imagePreview.hidden = false;
+            imagePreviewElement.hidden = false;
+            imagePreviewText.textContent = 'معاينة الصورة المضغوطة قبل الرفع.';
+            imagePreviewElement.onload = function () {
+                if (localImagePreviewUrl === previewUrl) imagePreviewText.textContent = 'معاينة الصورة المضغوطة قبل الرفع.';
+            };
+            imagePreviewElement.onerror = function () {
+                if (localImagePreviewUrl === previewUrl) imagePreviewText.textContent = 'تعذر تحميل معاينة الصورة المضغوطة.';
+            };
+            imagePreviewElement.src = previewUrl;
+        };
         imageUrlInput.addEventListener('input', updateImagePreview);
         imageUploadButton.addEventListener('click', function () { imageFileInput.click(); });
+        imagePreviewOpenButton.addEventListener('click', function () {
+            var source = imagePreviewElement.currentSrc || imagePreviewElement.src;
+            if (!source || imagePreviewElement.hidden) return;
+            var imageModal = ensureProductImageModal();
+            var itemId = modal.dataset.mode === 'edit' ? modal.dataset.itemId : '';
+            imageModal.dataset.itemId = itemId;
+            imageModal.querySelector('.product-image-replace').hidden = !itemId;
+            imageModal.querySelector('img').src = source;
+            imageModal.querySelector('img').alt = modal.querySelector('#adminProductName').value || 'معاينة صورة المنتج';
+            imageModal.hidden = false;
+        });
+        imageClearButton.addEventListener('click', function () {
+            imageUrlInput.value = '';
+            imageUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        imageFileInput.addEventListener('cancel', function () {
+            imageFileInput.value = '';
+        });
         imageFileInput.addEventListener('change', async function () {
             var file = imageFileInput.files && imageFileInput.files[0];
             if (!file) return;
@@ -316,58 +604,47 @@
                 imageFileInput.value = '';
                 return;
             }
-            if (!auth || !auth.currentUser) {
-                imageUploadStatus.textContent = 'يجب تسجيل الدخول قبل رفع الصورة.';
-                imageFileInput.value = '';
-                return;
-            }
-            var token = String((Number(modal.dataset.imageUploadToken) || 0) + 1);
-            modal.dataset.imageUploadToken = token;
-            imageUploadButton.disabled = true;
-            imageUrlInput.disabled = true;
+            var token = String((Number(modal.dataset.imageSelectionToken) || 0) + 1);
+            modal.dataset.imageSelectionToken = token;
             imageSaveButton.disabled = true;
-            imageUploadStatus.textContent = 'جارٍ تحميل إعدادات Cloudinary...';
+            imageUploadStatus.textContent = 'جارٍ ضغط الصورة محليًا إلى 100 KB أو أقل...';
             try {
-                var settingsSnapshot = await db.collection('settings').doc('cloudinary').get();
-                if (modal.hidden || modal.dataset.imageUploadToken !== token) return;
-                var settingsData = settingsSnapshot.exists ? settingsSnapshot.data() : {};
-                var config = {
-                    cloudName: settingsData && typeof settingsData.cloudName === 'string' ? settingsData.cloudName.trim() : '',
-                    uploadPreset: settingsData && typeof settingsData.uploadPreset === 'string' ? settingsData.uploadPreset.trim() : ''
-                };
-                if (!validCloudinarySettings(config)) throw new Error('إعدادات Cloudinary غير جاهزة. احفظها من إعدادات النظام الأساسية أولًا.');
-                imageUploadStatus.textContent = 'جارٍ رفع الصورة...';
-                var request = uploadProductImage(file, config, function (percent) {
-                    if (!modal.hidden && modal.dataset.imageUploadToken === token) imageUploadStatus.textContent = 'جارٍ رفع الصورة... ' + percent + '%';
+                var compressedImage = await compressProductImage(file, function () {
+                    return modal.dataset.imageSelectionToken !== token || modal.hidden;
                 });
-                modal._abortImageUpload = request.abort;
-                var secureUrl = await request.promise;
-                if (modal.hidden || modal.dataset.imageUploadToken !== token) return;
-                imageUrlInput.value = secureUrl;
-                updateImagePreview();
-                imageUploadStatus.textContent = 'تم رفع الصورة. احفظ المنتج لإتمام التغيير.';
-            } catch (uploadError) {
-                if (!modal.hidden && modal.dataset.imageUploadToken === token) {
-                    console.error('Mobile admin product image upload failed:', uploadError);
-                    imageUploadStatus.textContent = uploadError.message || 'تعذر رفع الصورة إلى Cloudinary.';
+                if (modal.dataset.imageSelectionToken !== token || modal.hidden) return;
+                pendingCompressedImage = compressedImage;
+                uploadedPendingImageUrl = '';
+                showCompressedImagePreview(compressedImage.file);
+                imageUploadStatus.textContent = 'تم ضغط الصورة. سيتم رفعها عند حفظ المنتج.';
+            } catch (compressionError) {
+                if (modal.dataset.imageSelectionToken === token && !modal.hidden) {
+                    console.error('Mobile admin product image compression failed:', compressionError);
+                    imageUploadStatus.textContent = pendingCompressedImage
+                        ? (compressionError.message || 'تعذر ضغط الصورة الجديدة.') + ' بقيت معاينة الصورة السابقة.'
+                        : (compressionError.message || 'تعذر ضغط الصورة؛ اختر صورة أخرى وحاول مجددًا.');
                 }
             } finally {
-                if (modal.dataset.imageUploadToken === token) {
-                    modal._abortImageUpload = null;
-                    imageUploadButton.disabled = false;
-                    imageUrlInput.disabled = false;
+                if (modal.dataset.imageSelectionToken === token) {
                     imageSaveButton.disabled = false;
                     imageFileInput.value = '';
                 }
             }
         });
-        modal.querySelectorAll('#adminPurchasePrice, #adminSalePrice, #adminMechanicPrice').forEach(function (input) { input.addEventListener('input', function () { updateAdminProfitLabels(modal); }); });
+        modal.querySelectorAll('#adminPurchasePrice, #adminSalePrice, #adminMechanicPrice').forEach(function (input) {
+            input.addEventListener('input', function () {
+                if (input.id === 'adminPurchasePrice') modal._purchasePriceEdited = true;
+                updateAdminProfitLabels(modal);
+            });
+        });
         modal.querySelector('#locationEditForm').addEventListener('submit', async function (event) {
             event.preventDefault();
             var itemId = modal.dataset.itemId, item = items.find(function (entry) { return entry.id === itemId; });
             var input = modal.querySelector('#locationEditInput'), error = modal.querySelector('#locationEditError'), save = modal.querySelector('.location-edit-save');
             var isCreate = modal.dataset.mode === 'create';
+            var imageUploadStarted = false;
             if (!item && !isCreate) return;
+            if (save.disabled) return;
             error.textContent = '';
             if (modal._abortImageUpload) {
                 error.textContent = 'انتظر اكتمال رفع الصورة قبل الحفظ.';
@@ -375,14 +652,15 @@
             }
             save.disabled = true;
             try {
-                var name = modal.querySelector('#adminProductName').value.trim(), location = input.value.trim(), imageInput = modal.querySelector('#imageUrlEditInput').value.trim(), imageUrl = normalizeImageUrl(imageInput);
+                var name = modal.querySelector('#adminProductName').value.trim(), location = input.value.trim(), imageInput = modal.querySelector('#imageUrlEditInput').value.trim(), imageUrl = pendingCompressedImage ? uploadedPendingImageUrl : normalizeImageUrl(imageInput);
                 var purchasePrice = number(modal.querySelector('#adminPurchasePrice').value), salePrice = number(modal.querySelector('#adminSalePrice').value), mechanicPriceValue = number(modal.querySelector('#adminMechanicPrice').value), quantity = number(modal.querySelector('#adminQuantity').value);
-                if (imageInput && !imageUrl) {
+                if (!pendingCompressedImage && imageInput && !imageUrl) {
                     error.textContent = 'رابط الصورة غير صالح. استخدم رابطًا يبدأ بـ http:// أو https://.';
                     save.disabled = false;
                     return;
                 }
-                if (modal.dataset.purchaseCurrency === 'secondary') purchasePrice = primary(purchasePrice);
+                if (item && !modal._purchasePriceEdited) purchasePrice = number(item.purchasePrice);
+                else if (modal.dataset.purchaseCurrency === 'secondary') purchasePrice = primary(purchasePrice);
                 if (item && window.PriceHelpers && window.PriceHelpers.getPrimaryPriceFromInput) {
                     salePrice = window.PriceHelpers.getPrimaryPriceFromInput(salePrice, item.salePrice, modal.dataset.saleCurrency === 'secondary', currency.exchangeRate);
                     mechanicPriceValue = window.PriceHelpers.getPrimaryPriceFromInput(mechanicPriceValue, mechanicPrice(item), modal.dataset.mechanicCurrency === 'secondary', currency.exchangeRate);
@@ -394,6 +672,32 @@
                     error.textContent = !name ? 'يرجى إدخال اسم المنتج' : 'يرجى إدخال أسعار وكمية صحيحة غير سالبة';
                     save.disabled = false;
                     return;
+                }
+                if (pendingCompressedImage && !uploadedPendingImageUrl) {
+                    imageUploadStarted = true;
+                    if (!auth || !auth.currentUser) throw new Error('يجب تسجيل الدخول قبل رفع الصورة.');
+                    imageUploadButton.disabled = true;
+                    imageUrlInput.disabled = true;
+                    imageUploadStatus.textContent = 'جارٍ تحميل إعدادات Cloudinary...';
+                    var settingsSnapshot = await db.collection('settings').doc('cloudinary').get();
+                    if (modal.hidden || !pendingCompressedImage) return;
+                    var settingsData = settingsSnapshot.exists ? settingsSnapshot.data() : {};
+                    var config = {
+                        cloudName: settingsData && typeof settingsData.cloudName === 'string' ? settingsData.cloudName.trim() : '',
+                        uploadPreset: settingsData && typeof settingsData.uploadPreset === 'string' ? settingsData.uploadPreset.trim() : ''
+                    };
+                    if (!validCloudinarySettings(config)) throw new Error('إعدادات Cloudinary غير جاهزة. احفظها من إعدادات النظام الأساسية أولًا.');
+                    imageUploadStatus.textContent = 'جارٍ رفع الصورة...';
+                    var request = uploadProductImage(pendingCompressedImage, config, function (percent) {
+                        if (!modal.hidden) imageUploadStatus.textContent = 'جارٍ رفع الصورة... ' + percent + '%';
+                    });
+                    modal._abortImageUpload = request.abort;
+                    uploadedPendingImageUrl = await request.promise;
+                    modal._abortImageUpload = null;
+                    imageUrl = uploadedPendingImageUrl;
+                    imageUploadStatus.textContent = 'تم رفع الصورة؛ جارٍ حفظ بيانات المنتج...';
+                } else if (pendingCompressedImage && uploadedPendingImageUrl) {
+                    imageUploadStatus.textContent = 'تم رفع الصورة مسبقًا؛ جارٍ حفظ بيانات المنتج...';
                 }
                 var images = Array.isArray(item && item.images) ? item.images.map(function (image) { return image && typeof image === 'object' ? Object.assign({}, image) : image; }) : [];
                 if (imageUrl) {
@@ -408,7 +712,10 @@
                 } else {
                     images = [];
                 }
-                var productData = { name: name, location: location, images: images, purchasePrice: purchasePrice, salePrice: salePrice, mechanicPrice: mechanicPriceValue, quantity: quantity, updatedAt: Date.now() };
+                var categoryId = modal.querySelector('#adminProductCategoryId').value;
+                var selectedCategory = categories.find(function (entry) { return entry.id === categoryId; });
+                var categoryName = selectedCategory ? selectedCategory.name : (item && item.categoryId === categoryId ? item.categoryName || '' : '');
+                var productData = { name: name, location: location, categoryId: categoryId || null, categoryName: categoryName, images: images, purchasePrice: purchasePrice, salePrice: salePrice, mechanicPrice: mechanicPriceValue, quantity: quantity, updatedAt: Date.now() };
                 if (isCreate) {
                     productData.createdAt = Date.now();
                     var created = await db.collection('items').add(productData);
@@ -424,14 +731,38 @@
                     item.quantity = quantity;
                 }
                 saveCache();
+                if (pendingCompressedImage) imageUrlInput.value = uploadedPendingImageUrl;
+                if (discardPendingImage) discardPendingImage();
                 modal.hidden = true;
+                saveUiState();
                 renderProducts();
                 notify(isCreate ? 'تم إنشاء المنتج' : 'تم تحديث بيانات المنتج');
+                if (modal.dataset.showImageAfterSave === 'true' && imageUrl) {
+                    var imageModal = ensureProductImageModal();
+                    imageModal.dataset.itemId = itemId || (created && created.id) || '';
+                    imageModal.querySelector('.product-image-replace').hidden = !imageModal.dataset.itemId;
+                    imageModal.querySelector('img').src = imageUrl;
+                    imageModal.querySelector('img').alt = name || 'صورة المنتج';
+                    imageModal.hidden = false;
+                }
+                modal.dataset.showImageAfterSave = 'false';
             } catch (updateError) {
-                error.textContent = isCreate ? 'تعذر إنشاء المنتج حاليًا' : 'تعذر حفظ بيانات المنتج حاليًا';
+                if (modal.hidden) return;
+                if (pendingCompressedImage && uploadedPendingImageUrl) {
+                    error.textContent = 'تم رفع الصورة لكن تعذر حفظ المنتج. اضغط حفظ للمحاولة مجددًا؛ لن يعاد رفع الصورة.';
+                    imageUploadStatus.textContent = 'تم رفع الصورة، وتعذر حفظ بيانات المنتج. يمكنك إعادة المحاولة.';
+                } else if (imageUploadStarted) {
+                    error.textContent = updateError.message || 'تعذر رفع الصورة إلى Cloudinary؛ لم يتم حفظ المنتج.';
+                    imageUploadStatus.textContent = error.textContent;
+                } else {
+                    error.textContent = isCreate ? 'تعذر إنشاء المنتج حاليًا' : 'تعذر حفظ بيانات المنتج حاليًا';
+                }
                 console.error(updateError);
             } finally {
-                save.disabled = false;
+                modal._abortImageUpload = null;
+                imageUploadButton.disabled = false;
+                imageUrlInput.disabled = false;
+                if (!modal.hidden) save.disabled = false;
             }
         });
         return modal;
@@ -453,6 +784,8 @@
 
     function openLocationEdit(item) {
         var modal = ensureLocationEditModal();
+        if (modal._resetPendingImage) modal._resetPendingImage();
+        modal.dataset.showImageAfterSave = 'false';
         var content = modal.querySelector('.location-edit-content');
         modal.querySelector('.admin-image-upload-button').disabled = false;
         modal.querySelector('#imageUrlEditInput').disabled = false;
@@ -475,15 +808,18 @@
         modal.querySelector('#locationEditProduct').hidden = true;
         modal.querySelector('#adminProductName').value = item.name || '';
         modal.querySelector('#locationEditInput').value = item.location || '';
+        renderAdminProductCategorySelect(item.categoryId || '');
         var primaryImage = Array.isArray(item.images) ? (item.images.find(function (image) { return image && image.isPrimary; }) || item.images.find(function (image) { return image && typeof image === 'object' && image.url; }) || item.images.find(function (image) { return typeof image === 'string' && image.trim(); })) : null;
         modal.querySelector('#imageUrlEditInput').value = normalizeImageUrl(typeof primaryImage === 'string' ? primaryImage : primaryImage && primaryImage.url);
         modal.querySelector('#imageUrlEditInput').dispatchEvent(new Event('input'));
         modal.querySelector('.admin-image-upload-status').textContent = '';
         modal.querySelector('.admin-image-file-input').value = '';
         modal.dataset.purchaseCurrency = 'primary';
+        modal._purchasePriceEdited = false;
         modal.dataset.saleCurrency = 'secondary';
         modal.dataset.mechanicCurrency = 'secondary';
-        modal.querySelector('#adminPurchasePrice').value = number(item.purchasePrice) || 0;
+        var purchasePrice = number(item.purchasePrice);
+        modal.querySelector('#adminPurchasePrice').value = purchasePrice === null ? 0 : purchasePrice.toFixed(2);
         modal.querySelector('#adminSalePrice').value = productSecondary(number(item.salePrice) || 0);
         modal.querySelector('#adminMechanicPrice').value = productSecondary(number(mechanicPrice(item)) || 0);
         modal.querySelector('#adminPurchaseCurrencyLabel').textContent = '$';
@@ -501,6 +837,8 @@
 
     function openNewProduct() {
         var modal = ensureLocationEditModal();
+        if (modal._resetPendingImage) modal._resetPendingImage();
+        modal.dataset.showImageAfterSave = 'false';
         modal.querySelector('.admin-image-upload-button').disabled = false;
         modal.querySelector('#imageUrlEditInput').disabled = false;
         modal.querySelector('.location-edit-save').disabled = false;
@@ -522,6 +860,7 @@
         modal.querySelector('.location-edit-save').textContent = 'إضافة';
         modal.querySelector('#adminProductName').value = '';
         modal.querySelector('#locationEditInput').value = '';
+        renderAdminProductCategorySelect('');
         modal.querySelector('#imageUrlEditInput').value = '';
         modal.querySelector('#imageUrlEditInput').dispatchEvent(new Event('input'));
         modal.querySelector('.admin-image-upload-status').textContent = '';
@@ -530,6 +869,7 @@
         modal.dataset.saleCurrency = 'secondary';
         modal.dataset.mechanicCurrency = 'secondary';
         modal.querySelector('#adminPurchasePrice').value = '';
+        modal._purchasePriceEdited = false;
         modal.querySelector('#adminSalePrice').value = '';
         modal.querySelector('#adminMechanicPrice').value = '';
         modal.querySelector('#adminQuantity').value = '';
@@ -545,6 +885,353 @@
     function notify(message) {
         var el = $('toast'); el.textContent = message; el.classList.add('show');
         clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
+    }
+
+    function sortedAdminCategories() {
+        return categories.slice().sort(function (a, b) {
+            return String(a.name || '').localeCompare(String(b.name || ''), 'ar', { sensitivity: 'base' });
+        });
+    }
+
+    function appendCategoryIcon(container, iconClass) {
+        var icon = document.createElement('i');
+        icon.className = /^[a-zA-Z0-9 _-]{1,100}$/.test(iconClass || '') ? iconClass : 'fas fa-tag';
+        icon.setAttribute('aria-hidden', 'true');
+        container.appendChild(icon);
+    }
+
+    function renderAdminProductCategorySelect(selectedId) {
+        var select = $('adminProductCategoryId');
+        if (!select) return;
+        var selectedCategoryId = selectedId === undefined ? select.value : String(selectedId || '');
+        select.replaceChildren();
+        var noCategory = document.createElement('option');
+        noCategory.value = '';
+        noCategory.textContent = '-- بدون فئة --';
+        select.appendChild(noCategory);
+        sortedAdminCategories().forEach(function (category) {
+            var option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = category.name || 'فئة';
+            select.appendChild(option);
+        });
+        if (selectedCategoryId && !categories.some(function (category) { return category.id === selectedCategoryId; })) {
+            var item = items.find(function (entry) { return entry.categoryId === selectedCategoryId; });
+            var unavailable = document.createElement('option');
+            unavailable.value = selectedCategoryId;
+            unavailable.textContent = item && item.categoryName ? item.categoryName : 'فئة غير متاحة';
+            select.appendChild(unavailable);
+        }
+        select.value = selectedCategoryId;
+    }
+
+    function renderCategoryProductChecklist(categoryId, containerId, selection, searchValue, allowAssigned) {
+        var container = $(containerId);
+        if (!container) return;
+        container.replaceChildren();
+        if (!categoryId && allowAssigned) {
+            var emptyChoice = document.createElement('div');
+            emptyChoice.className = 'category-products-empty';
+            emptyChoice.textContent = 'اختر فئة أولاً';
+            container.appendChild(emptyChoice);
+            return;
+        }
+        var search = String(searchValue || '').trim().toLocaleLowerCase();
+        var products = items.filter(function (item) {
+            var eligible = !item.categoryId || item.categoryId === categoryId;
+            return eligible && String(item.name || '').toLocaleLowerCase().includes(search);
+        }).sort(compareArabic);
+        if (!products.length) {
+            var empty = document.createElement('div');
+            empty.className = 'category-products-empty';
+            empty.textContent = search ? 'لا توجد منتجات مطابقة' : 'لا توجد منتجات غير مصنفة أو ضمن هذه الفئة';
+            container.appendChild(empty);
+            return;
+        }
+        products.forEach(function (item) {
+            var label = document.createElement('label');
+            label.className = 'category-product-option';
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.dataset.categoryProductId = item.id;
+            checkbox.checked = selection.has(item.id);
+            var name = document.createElement('span');
+            name.textContent = item.name || 'منتج';
+            label.appendChild(checkbox);
+            label.appendChild(name);
+            container.appendChild(label);
+        });
+    }
+
+    function renderAdminCategorySettings() {
+        var list = $('adminCategoriesList');
+        renderAdminProductCategorySelect();
+        if (!list || $('settingsModal').hidden) return;
+        list.replaceChildren();
+        if (!categories.length) {
+            var empty = document.createElement('div');
+            empty.className = 'admin-category-empty';
+            empty.textContent = categoriesLoaded ? 'لا توجد فئات' : 'جارٍ تحميل الفئات...';
+            list.appendChild(empty);
+        }
+        sortedAdminCategories().forEach(function (category) {
+            var products = items.filter(function (item) { return item.categoryId === category.id; }).sort(compareArabic);
+            var card = document.createElement('article');
+            card.className = 'admin-category-card';
+            var heading = document.createElement('div');
+            heading.className = 'admin-category-heading';
+            var icon = document.createElement('span');
+            icon.className = 'admin-category-icon';
+            appendCategoryIcon(icon, category.icon);
+            var name = document.createElement('button');
+            name.type = 'button';
+            name.className = 'admin-category-name';
+            name.dataset.categoryAction = 'edit';
+            name.dataset.categoryId = category.id;
+            name.setAttribute('aria-label', 'تعديل فئة ' + (category.name || ''));
+            name.textContent = category.name || 'فئة';
+            var count = document.createElement('span');
+            count.className = 'admin-category-count';
+            count.textContent = products.length + ' منتج';
+            heading.appendChild(icon);
+            heading.appendChild(name);
+            heading.appendChild(count);
+            card.appendChild(heading);
+            list.appendChild(card);
+        });
+
+        var select = $('manageCategorySelect');
+        var selectedId = managedCategoryId || select.value;
+        select.replaceChildren();
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'اختر فئة';
+        select.appendChild(placeholder);
+        sortedAdminCategories().forEach(function (category) {
+            var option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = category.name || 'فئة';
+            select.appendChild(option);
+        });
+        select.value = selectedId;
+        if (select.value !== selectedId) {
+            managedCategoryId = '';
+            managedCategorySelection = new Set();
+        }
+        renderCategoryProductChecklist(managedCategoryId, 'manageProductsChecklist', managedCategorySelection, $('manageProductSearch').value, true);
+        if (!$('categoryCreateModal').hidden) {
+            renderCategoryProductChecklist('', 'newCategoryProductsChecklist', newCategoryProductSelection, $('newCategoryProductSearch').value, false);
+        }
+    }
+
+    function activateSettingsTab(tab) {
+        var tabs = document.querySelectorAll('[data-settings-tab]');
+        tabs.forEach(function (button) {
+            var active = button === tab;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+            button.tabIndex = active ? 0 : -1;
+            var panel = $(button.dataset.settingsTab);
+            if (panel) panel.hidden = !active;
+        });
+    }
+
+    function activateCategoryTab(tab) {
+        var tabs = $('categorySettingsPanel').querySelectorAll('[data-category-tab]');
+        tabs.forEach(function (button) {
+            var active = button === tab;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+            button.tabIndex = active ? 0 : -1;
+            var panel = $(button.dataset.categoryTab);
+            if (panel) panel.hidden = !active;
+        });
+    }
+
+    async function createAdminCategory() {
+        var name = $('newCategoryName').value.trim();
+        var icon = $('newCategoryIcon').value.trim();
+        var error = $('categoryCreateError');
+        if (!name) {
+            error.textContent = 'يرجى إدخال اسم الفئة';
+            $('newCategoryName').focus();
+            return;
+        }
+        if (icon && !/^[a-zA-Z0-9 _-]{1,100}$/.test(icon)) {
+            error.textContent = 'صيغة الأيقونة غير صالحة';
+            return;
+        }
+        var save = $('saveNewCategory');
+        save.disabled = true;
+        error.textContent = '';
+        var category = { name: name, icon: icon, createdAt: Date.now() };
+        var createdCategory = false;
+        try {
+            var categoryRef = db.collection('categories').doc();
+            await categoryRef.set(category);
+            createdCategory = true;
+            var selectedItems = items.filter(function (item) {
+                return newCategoryProductSelection.has(item.id) && !item.categoryId;
+            });
+            for (var start = 0; start < selectedItems.length; start += 450) {
+                var batch = db.batch();
+                selectedItems.slice(start, start + 450).forEach(function (item) {
+                    batch.update(db.collection('items').doc(item.id), { categoryId: categoryRef.id, categoryName: name });
+                });
+                await batch.commit();
+            }
+            var categoryIndex = categories.findIndex(function (entry) { return entry.id === categoryRef.id; });
+            var createdCategoryData = Object.assign({ id: categoryRef.id }, category);
+            if (categoryIndex === -1) categories.push(createdCategoryData);
+            else categories[categoryIndex] = createdCategoryData;
+            selectedItems.forEach(function (item) { item.categoryId = categoryRef.id; item.categoryName = name; });
+            $('categoryCreateModal').hidden = true;
+            $('newCategoryName').value = '';
+            $('newCategoryIcon').value = '';
+            newCategoryProductSelection = new Set();
+            renderAdminCategorySettings();
+            notify('تمت إضافة الفئة');
+        } catch (errorValue) {
+            console.error('Mobile admin category creation failed:', errorValue);
+            if (createdCategory) {
+                $('categoryCreateModal').hidden = true;
+                renderAdminCategorySettings();
+                notify('تمت إضافة الفئة، لكن تعذر إسناد بعض المنتجات');
+            } else {
+                error.textContent = 'تعذر إضافة الفئة حاليًا';
+            }
+        } finally {
+            save.disabled = false;
+            if ($('settingsModal').hidden && $('categoryCreateModal').hidden) document.body.style.overflow = '';
+        }
+    }
+
+    async function saveAdminCategoryProducts() {
+        var categoryId = managedCategoryId;
+        var category = categories.find(function (entry) { return entry.id === categoryId; });
+        var error = $('categoryManageError');
+        if (!category) {
+            error.textContent = 'اختر فئة أولاً';
+            return;
+        }
+        error.textContent = '';
+        var currentProducts = items.filter(function (item) { return item.categoryId === categoryId; });
+        var changes = [];
+        currentProducts.forEach(function (item) {
+            if (!managedCategorySelection.has(item.id)) changes.push({ item: item, categoryId: null, categoryName: '' });
+        });
+        items.forEach(function (item) {
+            if (!item.categoryId && managedCategorySelection.has(item.id)) changes.push({ item: item, categoryId: categoryId, categoryName: category.name });
+        });
+        if (!changes.length) {
+            error.textContent = 'لم يتم تغيير أي منتج';
+            return;
+        }
+        var save = $('saveCategoryProducts');
+        save.disabled = true;
+        try {
+            for (var start = 0; start < changes.length; start += 450) {
+                var batch = db.batch();
+                changes.slice(start, start + 450).forEach(function (change) {
+                    batch.update(db.collection('items').doc(change.item.id), {
+                        categoryId: change.categoryId,
+                        categoryName: change.categoryName
+                    });
+                });
+                await batch.commit();
+            }
+            changes.forEach(function (change) {
+                change.item.categoryId = change.categoryId;
+                change.item.categoryName = change.categoryName;
+            });
+            managedCategorySelection = new Set(items.filter(function (item) { return item.categoryId === categoryId; }).map(function (item) { return item.id; }));
+            renderAdminCategorySettings();
+            notify('تم تحديث منتجات الفئة');
+        } catch (errorValue) {
+            console.error('Mobile admin category assignment failed:', errorValue);
+            error.textContent = 'تعذر حفظ منتجات الفئة؛ تحقق من الاتصال ثم أعد المحاولة';
+        } finally {
+            save.disabled = false;
+        }
+    }
+
+    function openAdminCategoryEditor(categoryId) {
+        var category = categories.find(function (entry) { return entry.id === categoryId; });
+        if (!category) return;
+        $('categoryEditModal').dataset.categoryId = categoryId;
+        $('editCategoryName').value = category.name || '';
+        $('editCategoryIcon').value = category.icon || '';
+        $('categoryEditError').textContent = '';
+        openModal('categoryEditModal');
+        $('editCategoryName').focus();
+    }
+
+    async function updateAdminCategory() {
+        var categoryId = $('categoryEditModal').dataset.categoryId;
+        var category = categories.find(function (entry) { return entry.id === categoryId; });
+        if (!category) return;
+        var name = $('editCategoryName').value.trim();
+        var icon = $('editCategoryIcon').value.trim();
+        var error = $('categoryEditError');
+        if (!name) {
+            error.textContent = 'يرجى إدخال اسم الفئة';
+            $('editCategoryName').focus();
+            return;
+        }
+        if (icon && !/^[a-zA-Z0-9 _-]{1,100}$/.test(icon)) {
+            error.textContent = 'صيغة الأيقونة غير صالحة';
+            $('editCategoryIcon').focus();
+            return;
+        }
+        var save = $('saveEditedCategory');
+        save.disabled = true;
+        error.textContent = '';
+        try {
+            var updated = { name: name, icon: icon };
+            await db.collection('categories').doc(categoryId).update(updated);
+            Object.assign(category, updated);
+            items.forEach(function (item) {
+                if (item.categoryId === categoryId) item.categoryName = updated.name;
+            });
+            renderAdminCategorySettings();
+            saveCache();
+            closeModal('categoryEditModal');
+            notify('تم تحديث الفئة');
+        } catch (errorValue) {
+            console.error('Mobile admin category update failed:', errorValue);
+            error.textContent = 'تعذر تحديث الفئة حاليًا';
+        } finally {
+            save.disabled = false;
+        }
+    }
+
+    async function deleteAdminCategory(categoryId) {
+        var category = categories.find(function (entry) { return entry.id === categoryId; });
+        if (!category || !confirm('حذف الفئة "' + category.name + '"؟ ستبقى المنتجات دون فئة.')) return;
+        var assignedItems = items.filter(function (item) { return item.categoryId === categoryId; });
+        try {
+            for (var start = 0; start < assignedItems.length; start += 450) {
+                var batch = db.batch();
+                assignedItems.slice(start, start + 450).forEach(function (item) {
+                    batch.update(db.collection('items').doc(item.id), { categoryId: null, categoryName: '' });
+                });
+                await batch.commit();
+            }
+            await db.collection('categories').doc(categoryId).delete();
+            assignedItems.forEach(function (item) { item.categoryId = null; item.categoryName = ''; });
+            categories = categories.filter(function (entry) { return entry.id !== categoryId; });
+            if (managedCategoryId === categoryId) {
+                managedCategoryId = '';
+                managedCategorySelection = new Set();
+            }
+            renderAdminCategorySettings();
+            saveCache();
+            notify('تم حذف الفئة');
+            if ($('categoryEditModal').dataset.categoryId === categoryId) closeModal('categoryEditModal');
+        } catch (errorValue) {
+            console.error('Mobile admin category deletion failed:', errorValue);
+            notify('تعذر حذف الفئة أو بعض منتجاتها');
+        }
     }
 
     function mergeDisplayNameMap(source) {
@@ -567,7 +1254,25 @@
         return merged;
     }
 
-    async function refreshUserDisplayNameMap() {
+    function restoreUserDisplayNameMapCache() {
+        try {
+            var cached = JSON.parse(localStorage.getItem(USER_DISPLAY_NAMES_CACHE_KEY) || 'null');
+            if (cached && cached.map && typeof cached.map === 'object' && !Array.isArray(cached.map)) {
+                userDisplayNameMap = cached.map;
+                userDisplayNameMapFetchedAt = Number(cached.savedAt) || 0;
+            }
+        } catch (error) {
+            console.warn('Unable to read cached seller names.', error);
+        }
+    }
+
+    restoreUserDisplayNameMapCache();
+
+    function refreshUserDisplayNameMap() {
+        if (userDisplayNameMapPromise) return userDisplayNameMapPromise;
+        if (userDisplayNameMapFetchedAt && Date.now() - userDisplayNameMapFetchedAt < 60000) {
+            return Promise.resolve(userDisplayNameMap);
+        }
         var docs = [
             db.collection('settings').doc('userDisplayNames'),
             db.collection('settings').doc('userNames'),
@@ -575,16 +1280,27 @@
             db.collection('systemSettings').doc('userNames'),
             db.collection('adminSettings').doc('userDisplayNames')
         ];
-        var merged = {};
-        for (var i = 0; i < docs.length; i += 1) {
-            try {
-                var doc = await docs[i].get();
-                if (!doc || !doc.exists) continue;
-                Object.assign(merged, mergeDisplayNameMap(doc.data()));
-            } catch (error) { /* Ignore missing settings docs */ }
-        }
-        userDisplayNameMap = merged;
-        return merged;
+        var refresh = Promise.all(docs.map(function (reference) {
+            return reference.get().then(function (doc) {
+                return doc && doc.exists ? mergeDisplayNameMap(doc.data()) : {};
+            }, function () { return {}; });
+        })).then(function (maps) {
+            var merged = {};
+            maps.forEach(function (map) { Object.assign(merged, map); });
+            userDisplayNameMap = merged;
+            userDisplayNameMapFetchedAt = Date.now();
+            try { localStorage.setItem(USER_DISPLAY_NAMES_CACHE_KEY, JSON.stringify({ map: merged, savedAt: userDisplayNameMapFetchedAt })); }
+            catch (error) { console.warn('Unable to cache seller names.', error); }
+            return merged;
+        });
+        userDisplayNameMapPromise = refresh.then(function (map) {
+            userDisplayNameMapPromise = null;
+            return map;
+        }, function (error) {
+            userDisplayNameMapPromise = null;
+            throw error;
+        });
+        return userDisplayNameMapPromise;
     }
 
     function getCurrentSellerInfo() {
@@ -691,8 +1407,166 @@
         } catch (error) { return false; }
     }
 
+    function captureUiState() {
+        var values = {};
+        document.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (field) {
+            if (field.type === 'password' || field.type === 'file' || field.closest('#loginForm')) return;
+            values[field.id] = { value: field.value, checked: field.checked };
+        });
+        var modals = {};
+        ['saleModal', 'historyModal', 'priceWarning', 'quantityWarning'].forEach(function (id) {
+            var element = $(id);
+            if (element) modals[id] = element.hidden;
+        });
+        var locationModal = $('locationEditModal');
+        var locationEdit = locationModal && !locationModal.hidden ? {
+            mode: locationModal.dataset.mode,
+            itemId: locationModal.dataset.itemId,
+            purchasePriceEdited: Boolean(locationModal._purchasePriceEdited),
+            purchaseCurrency: locationModal.dataset.purchaseCurrency,
+            saleCurrency: locationModal.dataset.saleCurrency,
+            mechanicCurrency: locationModal.dataset.mechanicCurrency
+        } : null;
+        return {
+            values: values,
+            modals: modals,
+            locationEdit: locationEdit,
+            productFilter: productFilter,
+            activeProductCategoryId: activeProductCategoryId,
+            inventorySort: inventorySort,
+            scrollY: window.scrollY,
+            selectedItemId: selectedItem && selectedItem.id || '',
+            editingSale: editingSale,
+            activeSaleMode: activeSaleMode,
+            saleDefaultPrice: saleDefaultPrice,
+            salePriceManuallyEdited: salePriceManuallyEdited,
+            unusualPriceApproved: unusualPriceApproved,
+            historyStartDate: historyStartDate ? historyStartDate.getTime() : null,
+            historyHasMore: historyHasMore
+        };
+    }
+
+    function saveUiState() {
+        try {
+            localStorage.setItem(UI_STATE_KEY, JSON.stringify(captureUiState()));
+        } catch (error) {
+            console.warn('Unable to persist mobile admin page state.', error);
+        }
+    }
+
+    function restoreUiState() {
+        if (uiStateRestored) return true;
+        if (!pendingUiState) {
+            try { pendingUiState = JSON.parse(localStorage.getItem(UI_STATE_KEY) || 'null'); }
+            catch (error) { console.warn('Unable to read saved mobile admin page state.', error); }
+        }
+        var state = pendingUiState;
+        if (!state || typeof state !== 'object') {
+            uiStateRestored = true;
+            return true;
+        }
+        productFilter = ['all', 'available', 'expired'].indexOf(state.productFilter) !== -1 ? state.productFilter : productFilter;
+        if (typeof state.activeProductCategoryId === 'string') activeProductCategoryId = state.activeProductCategoryId;
+        if (typeof state.inventorySort === 'string') inventorySort = state.inventorySort;
+        if (state.values && typeof state.values === 'object' && typeof state.values.productSearch === 'string') {
+            $('productSearch').value = state.values.productSearch;
+        }
+        renderProducts();
+
+        var saleModalOpen = state.modals && state.modals.saleModal === false;
+        var item = items.find(function (entry) { return entry.id === state.selectedItemId; });
+        var saleToEdit = state.editingSale && (sales.find(function (entry) { return entry.saleId === state.editingSale.saleId; }) || state.editingSale);
+        if (saleModalOpen && (state.editingSale ? !items.some(function (entry) { return entry.id === state.editingSale.itemId; }) : !item)) return false;
+        if (state.locationEdit) {
+            if (state.locationEdit.mode === 'edit') {
+                var locationItem = items.find(function (entry) { return entry.id === state.locationEdit.itemId; });
+                if (!locationItem) return false;
+                openLocationEdit(locationItem);
+            } else if (state.locationEdit.mode === 'create') {
+                openNewProduct();
+            }
+        }
+        if (saleModalOpen) {
+            if (state.editingSale && saleToEdit) openEditSale(saleToEdit);
+            else openNewSale(item, state.activeSaleMode === 'mechanic' ? mechanicPrice(item) : item.salePrice, state.activeSaleMode);
+        }
+
+        if (state.values && typeof state.values === 'object') {
+            Object.keys(state.values).forEach(function (id) {
+                var field = $(id), saved = state.values[id];
+                if (!field || !saved || field.closest('#loginForm') || field.type === 'password' || field.type === 'file') return;
+                if (id === 'adminPurchasePrice' && state.locationEdit && state.locationEdit.mode === 'edit') {
+                    var editModal = $('locationEditModal');
+                    var editItem = items.find(function (entry) { return entry.id === state.locationEdit.itemId; });
+                    var originalPurchase = editItem ? number(editItem.purchasePrice) : null;
+                    var edited = typeof state.locationEdit.purchasePriceEdited === 'boolean'
+                        ? state.locationEdit.purchasePriceEdited
+                        : number(saved.value) !== originalPurchase;
+                    editModal._purchasePriceEdited = edited;
+                    if (edited) field.value = saved.value;
+                    else if (originalPurchase !== null && state.locationEdit.purchaseCurrency !== 'secondary') field.value = originalPurchase.toFixed(2);
+                    else if (number(saved.value) !== null) field.value = number(saved.value).toFixed(2);
+                    return;
+                }
+                if (field.type === 'checkbox' || field.type === 'radio') field.checked = Boolean(saved.checked);
+                else if (typeof saved.value === 'string') field.value = saved.value;
+            });
+        }
+        updateSearchClearButton();
+        if (state.locationEdit && $('locationEditModal')) {
+            var locationModal = $('locationEditModal');
+            locationModal.dataset.purchaseCurrency = state.locationEdit.purchaseCurrency || 'primary';
+            if (typeof state.locationEdit.purchasePriceEdited === 'boolean') locationModal._purchasePriceEdited = state.locationEdit.purchasePriceEdited;
+            locationModal.dataset.saleCurrency = state.locationEdit.saleCurrency || 'secondary';
+            locationModal.dataset.mechanicCurrency = state.locationEdit.mechanicCurrency || 'secondary';
+            locationModal.querySelector('#adminPurchaseCurrencyLabel').textContent = locationModal.dataset.purchaseCurrency === 'secondary' ? currency.secondaryCurrencySymbol : '$';
+            locationModal.querySelector('#adminSaleCurrencyLabel').textContent = locationModal.dataset.saleCurrency === 'secondary' ? currency.secondaryCurrencySymbol : '$';
+            locationModal.querySelector('#adminMechanicCurrencyLabel').textContent = locationModal.dataset.mechanicCurrency === 'secondary' ? currency.secondaryCurrencySymbol : '$';
+            locationModal.querySelector('#imageUrlEditInput').dispatchEvent(new Event('input'));
+            updateAdminProfitLabels(locationModal);
+        }
+        selectedItem = item || (state.editingSale && items.find(function (entry) { return entry.id === state.editingSale.itemId; })) || selectedItem;
+        editingSale = saleToEdit || null;
+        activeSaleMode = state.activeSaleMode || activeSaleMode;
+        saleDefaultPrice = state.saleDefaultPrice === null || Number.isFinite(Number(state.saleDefaultPrice)) ? state.saleDefaultPrice : saleDefaultPrice;
+        salePriceManuallyEdited = Boolean(state.salePriceManuallyEdited);
+        unusualPriceApproved = Boolean(state.unusualPriceApproved);
+        if (Number.isFinite(Number(state.historyStartDate)) && Number(state.historyStartDate) > 0) historyStartDate = new Date(Number(state.historyStartDate));
+        if (typeof state.historyHasMore === 'boolean') historyHasMore = state.historyHasMore;
+        if ($('saleModal')) $('saleModal').hidden = !saleModalOpen;
+        if (state.modals && state.modals.historyModal === false) {
+            renderHistory();
+            openModal('historyModal');
+        } else if ($('historyModal')) {
+            $('historyModal').hidden = true;
+        }
+        if (state.modals) {
+            ['priceWarning', 'quantityWarning'].forEach(function (id) {
+                if (typeof state.modals[id] === 'boolean' && $(id)) $(id).hidden = state.modals[id];
+            });
+        }
+        if (saleModalOpen) updateSalePriceGuide();
+        var locationOpen = Boolean(state.locationEdit);
+        if ($('locationEditModal')) $('locationEditModal').hidden = !locationOpen;
+        if ($('saleModal').hidden && $('historyModal').hidden && !locationOpen) document.body.style.overflow = '';
+        else document.body.style.overflow = 'hidden';
+        var scrollY = Number(state.scrollY);
+        if (Number.isFinite(scrollY)) setTimeout(function () { window.scrollTo(0, scrollY); }, 0);
+        uiStateRestored = true;
+        pendingUiState = null;
+        return true;
+    }
+
     function openModal(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
-    function closeModal(id) { $(id).hidden = true; if ($('saleModal').hidden && $('historyModal').hidden) document.body.style.overflow = ''; }
+    function closeModal(id) {
+        $(id).hidden = true;
+        var hasOpenModal = ['saleModal', 'historyModal', 'settingsModal', 'categoryCreateModal', 'categoryEditModal'].some(function (modalId) {
+            return !$(modalId).hidden;
+        });
+        var locationModal = $('locationEditModal');
+        if (!hasOpenModal && (!locationModal || locationModal.hidden)) document.body.style.overflow = '';
+        saveUiState();
+    }
 
     function mechanicPrice(item) {
         var value = number(item.mechanicPrice);
@@ -717,11 +1591,64 @@
         return compareArabic(a, b);
     }
 
+    function matchesProductFilter(item) {
+        var available = (number(item.quantity) || 0) > 0;
+        return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
+    }
+
+    function renderCategoryFilters() {
+        var nav = $('categoryFilters');
+        if (!nav) return;
+        var previousScrollLeft = nav.scrollLeft;
+        if (categoriesLoaded && activeProductCategoryId && (!categories.some(function (category) { return category.id === activeProductCategoryId; }) ||
+            (productsLoaded && !items.some(function (item) { return item.categoryId === activeProductCategoryId; })))) {
+            activeProductCategoryId = '';
+        }
+        nav.replaceChildren();
+        var uncategorizedCount = items.filter(function (item) { return !item.categoryId && matchesProductFilter(item); }).length;
+        var uncategorized = document.createElement('button');
+        uncategorized.type = 'button';
+        uncategorized.className = 'category-filter' + (activeProductCategoryId ? '' : ' active');
+        uncategorized.dataset.categoryFilter = '';
+        uncategorized.setAttribute('aria-pressed', String(!activeProductCategoryId));
+        var uncategorizedName = document.createElement('span');
+        uncategorizedName.className = 'category-filter-name';
+        uncategorizedName.textContent = 'الكل';
+        var uncategorizedCountElement = document.createElement('span');
+        uncategorizedCountElement.className = 'category-filter-count';
+        uncategorizedCountElement.textContent = String(uncategorizedCount);
+        uncategorized.appendChild(uncategorizedName);
+        uncategorized.appendChild(uncategorizedCountElement);
+        nav.appendChild(uncategorized);
+
+        categories.filter(function (category) {
+            return items.some(function (item) { return item.categoryId === category.id; });
+        }).sort(compareArabic).forEach(function (category) {
+            var count = items.filter(function (item) {
+                return item.categoryId === category.id && matchesProductFilter(item);
+            }).length;
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'category-filter' + (activeProductCategoryId === category.id ? ' active' : '');
+            button.dataset.categoryFilter = category.id;
+            button.setAttribute('aria-pressed', String(activeProductCategoryId === category.id));
+            var name = document.createElement('span');
+            name.className = 'category-filter-name';
+            name.textContent = category.name || 'فئة';
+            var countElement = document.createElement('span');
+            countElement.className = 'category-filter-count';
+            countElement.textContent = String(count);
+            button.appendChild(name);
+            button.appendChild(countElement);
+            nav.appendChild(button);
+        });
+        nav.scrollLeft = previousScrollLeft;
+    }
+
     function filterAndSortProducts(term) {
         var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
         var source = (Array.isArray(items) ? items : []).filter(function (item) {
-            var available = (number(item.quantity) || 0) > 0;
-            return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
+            return matchesProductFilter(item) && (activeProductCategoryId ? item.categoryId === activeProductCategoryId : !item.categoryId);
         });
         if (searchTerm) {
             var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });
@@ -747,6 +1674,7 @@
         };
         document.querySelectorAll('[data-filter-count]').forEach(function (element) { element.textContent = counts[element.dataset.filterCount] || 0; });
         document.querySelectorAll('[data-product-filter]').forEach(function (button) { button.classList.toggle('active', button.dataset.productFilter === productFilter); });
+        renderCategoryFilters();
     }
 
     function updateSearchSummary(searchTerm, visibleCount) {
@@ -769,26 +1697,47 @@
         updateSearchSummary(searchTerm, visible.length);
         $('productsEmpty').hidden = visible.length !== 0;
         var visibleIds = new Set(visible.map(function (item) { return item.id; }));
-        productElements.forEach(function (element, id) { if (!visibleIds.has(id)) element.remove(); });
-        visible.forEach(function (item) {
+        productElements.forEach(function (element, id) {
+            if (!visibleIds.has(id)) {
+                clearTimeout(element._mechanicPriceRevealTimer);
+                clearTimeout(element._purchasePriceRevealTimer);
+                element._mechanicPriceRevealTimer = null;
+                element._purchasePriceRevealTimer = null;
+                element.classList.add('mechanic-price-obscured', 'purchase-price-obscured');
+                element.remove();
+            }
+        });
+        visible.forEach(function (item, index) {
             var stock = number(item.quantity) || 0, purchaseInSecondary = currency.defaultInputCurrency === 'secondary', purchaseSymbol = purchaseInSecondary ? currency.secondaryCurrencySymbol : '$', purchaseDisplay = purchaseInSecondary ? secondary(item.purchasePrice) : item.purchasePrice, signature = JSON.stringify([item.name, stock, item.purchasePrice, item.salePrice, mechanicPrice(item), currency.defaultInputCurrency, currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
             var element = productElements.get(item.id);
-            if (!element) { element = document.createElement('article'); element.className = 'product-card'; element.dataset.productId = item.id; productElements.set(item.id, element); }
+            if (!element) { element = document.createElement('article'); element.className = 'product-card mechanic-price-obscured purchase-price-obscured'; element.dataset.productId = item.id; productElements.set(item.id, element); }
             element.classList.toggle('expired-product', stock <= 0);
             if (element.dataset.signature !== signature) {
+                clearTimeout(element._mechanicPriceRevealTimer);
+                clearTimeout(element._purchasePriceRevealTimer);
+                element._mechanicPriceRevealTimer = null;
+                element._purchasePriceRevealTimer = null;
+                element.classList.add('mechanic-price-obscured', 'purchase-price-obscured');
                 var productImages = Array.isArray(item.images) ? item.images.filter(function (img) { return img && typeof img.url === 'string' && img.url.trim(); }) : [];
                 var primaryImage = productImages.find(function (img) { return img.isPrimary; }) || productImages[0] || null;
                 element.dataset.signature = signature;
                 element.innerHTML =
-                (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
+                '<span class="product-card-number" aria-hidden="true"></span>' +
+                (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<button class="product-thumb placeholder" type="button" data-image-replace="' + esc(item.id) + '" aria-label="إضافة صورة للمنتج"><span>XM</span></button>') +
                 '<h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
-                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong>' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
+                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span>(<button class="location-label location-edit-trigger" type="button" data-edit-location="' + esc(item.id) + '">مكان القطعة:</button> <strong class="location-value">' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
-                '<div class="price-line purchase-price"><span>شراء</span><strong>' + price(purchaseDisplay) + ' ' + esc(purchaseSymbol) + '</strong></div>' +
+                '<button class="price-line purchase-price" type="button" aria-label="إظهار سعر الشراء" aria-pressed="false"><span>شراء</span><strong class="sensitive-price">' + price(purchaseDisplay) + ' ' + esc(purchaseSymbol) + '</strong></button>' +
                 '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span class="price-label-with-profit"><small class="' + (number(item.purchasePrice) > 0 && number(item.salePrice) < number(item.purchasePrice) ? 'negative-profit' : '') + '">' + profitPercent(item.purchasePrice, item.salePrice) + '</small><span>زبون</span></span><strong>' + price(productSecondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span class="price-label-with-profit"><small class="' + (number(item.purchasePrice) > 0 && number(mechanicPrice(item)) < number(item.purchasePrice) ? 'negative-profit' : '') + '">' + profitPercent(item.purchasePrice, mechanicPrice(item)) + '</small><span>ميكانيكي</span></span><strong>' + price(productSecondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '</div>';
             }
+            var cardNumber = element.querySelector('.product-card-number');
+            cardNumber.textContent = String(index + 1);
+            var purchasePriceButton = element.querySelector('.purchase-price');
+            var purchasePriceObscured = element.classList.contains('purchase-price-obscured');
+            purchasePriceButton.setAttribute('aria-pressed', purchasePriceObscured ? 'false' : 'true');
+            purchasePriceButton.setAttribute('aria-label', purchasePriceObscured ? 'إظهار سعر الشراء' : 'إخفاء سعر الشراء');
             $('productsGrid').appendChild(element);
         });
     }
@@ -1212,7 +2161,7 @@
                     console.warn('Mobile sales offline update queued', offlineUpdateError);
                 }
             }
-            closeModal('saleModal'); renderProducts(); renderHistory();
+            closeModal('saleModal'); renderProducts(); renderHistory(); saveUiState();
         } catch (error) { showError('saleError', error.message || 'تعذر حفظ العملية'); }
         button.disabled = false;
     }
@@ -1298,8 +2247,9 @@
         var hasCache = restoreCache();
         historyLiveStartDate = historyInitialStart();
         historyStartDate = historyLiveStartDate;
-        sales = sales.filter(function (sale) { var timestamp = timestampValue(sale.timestamp); return timestamp >= historyLiveStartDate.getTime() && timestamp < addDays(historyLiveStartDate, 2).getTime(); });
+        sales = uniqueSales(sales);
         if (hasCache) { renderProducts(); renderHistory(); }
+        restoreUiState();
         try { flushPendingSalesQueue(); } catch (error) { console.warn('Pending mobile sales flush setup failed', error); }
         startLiveListeners();
         if (hasCache) return;
@@ -1311,6 +2261,7 @@
                 items = result[0].docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
                 if (result[1].exists) currency = Object.assign(currency, result[1].data());
                 renderProducts(); renderHistory(); saveCache();
+                restoreUiState();
             });
             await Promise.race([cacheRead, new Promise(function (resolve) { setTimeout(resolve, 1200); })]);
         } catch (error) { notify('تعذر الاتصال بالنظام'); console.error(error); }
@@ -1321,12 +2272,32 @@
         listenersStarted = true;
         db.collection('items').onSnapshot(function (snap) {
             var nextItems = snap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            var firstProductsSnapshot = !productsLoaded;
+            productsLoaded = true;
             var changed = nextItems.length !== items.length || nextItems.some(function (next) {
                 var previous = items.find(function (item) { return item.id === next.id; });
                 return !previous || JSON.stringify(previous) !== JSON.stringify(next);
             });
-            if (changed) { items = nextItems; renderProducts(); saveCache(); }
+            if (changed) {
+                items = nextItems;
+                renderProducts();
+                renderAdminCategorySettings();
+                saveCache();
+                restoreUiState();
+            } else if (firstProductsSnapshot) renderProducts();
             lastSyncAt = Date.now();
+        });
+        db.collection('categories').onSnapshot(function (snap) {
+            categories = snap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            categoriesLoaded = true;
+            renderProducts();
+            renderAdminCategorySettings();
+        }, function (error) {
+            console.error('Mobile admin category sync failed:', error);
+            categoriesLoaded = true;
+            renderProducts();
+            renderAdminCategorySettings();
+            if (!$('settingsModal').hidden) notify('تعذر تحديث الفئات؛ تحقق من الاتصال');
         });
         historyLiveStartDate = historyLiveStartDate || historyInitialStart();
         historyStartDate = historyStartDate || historyLiveStartDate;
@@ -1343,6 +2314,18 @@
         });
     }
 
+    function updateSearchClearButton() {
+        $('clearProductSearch').hidden = !$('productSearch').value;
+    }
+
+    $('clearProductSearch').addEventListener('click', function () {
+        $('productSearch').value = '';
+        $('productSearch').dispatchEvent(new Event('input', { bubbles: true }));
+        $('productSearch').focus();
+    });
+    $('productSearch').addEventListener('input', updateSearchClearButton);
+    updateSearchClearButton();
+
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
     $('productSearch').addEventListener('input', function () { renderProducts(); scrollToProductsTop(); });
     $('productFilters').addEventListener('click', function (event) {
@@ -1350,6 +2333,15 @@
         if (!button) return;
         productFilter = button.dataset.productFilter || 'available';
         renderProducts();
+        saveUiState();
+        scrollToProductsTop();
+    });
+    $('categoryFilters').addEventListener('click', function (event) {
+        var button = event.target.closest('[data-category-filter]');
+        if (!button) return;
+        activeProductCategoryId = button.dataset.categoryFilter || '';
+        renderProducts();
+        saveUiState();
         scrollToProductsTop();
     });
     $('saleQuantity').addEventListener('input', function () {
@@ -1378,13 +2370,158 @@
     $('confirmUnusualPrice').addEventListener('click', function () { unusualPriceApproved = true; $('priceWarning').hidden = true; $('saleForm').requestSubmit(); });
     window.addEventListener('scroll', function () {
         try { localStorage.setItem(CACHE_KEY + ':scrollY', String(window.scrollY)); } catch (error) {}
+        scheduleUiStateSave();
         updateCustomScrollbar();
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
     $('themeToggleButton').addEventListener('click', function () {
         applyMobileTheme(currentTheme === 'dark' ? 'light' : 'dark', true);
     });
+    $('settingsButton').addEventListener('click', function () {
+        openModal('settingsModal');
+        activateSettingsTab($('categorySettingsTab'));
+        activateCategoryTab($('assignCategoryProductsTab'));
+        renderAdminCategorySettings();
+    });
+    $('settingsModal').querySelector('[role="tablist"]').addEventListener('click', function (event) {
+        var tab = event.target.closest('[data-settings-tab]');
+        if (tab) activateSettingsTab(tab);
+    });
+    $('settingsModal').querySelector('[role="tablist"]').addEventListener('keydown', function (event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        var tabs = Array.from(this.querySelectorAll('[data-settings-tab]'));
+        var current = tabs.indexOf(document.activeElement);
+        if (current === -1) return;
+        event.preventDefault();
+        var direction = event.key === 'ArrowRight' ? 1 : -1;
+        var next = tabs[(current + direction + tabs.length) % tabs.length];
+        activateSettingsTab(next);
+        next.focus();
+    });
+    $('categorySettingsPanel').querySelector('[role="tablist"]').addEventListener('click', function (event) {
+        var tab = event.target.closest('[data-category-tab]');
+        if (tab) activateCategoryTab(tab);
+    });
+    $('categorySettingsPanel').querySelector('[role="tablist"]').addEventListener('keydown', function (event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        var tabs = Array.from(this.querySelectorAll('[data-category-tab]'));
+        var current = tabs.indexOf(document.activeElement);
+        if (current === -1) return;
+        event.preventDefault();
+        var direction = event.key === 'ArrowRight' ? 1 : -1;
+        var next = tabs[(current + direction + tabs.length) % tabs.length];
+        activateCategoryTab(next);
+        next.focus();
+    });
+    $('addCategoryButton').addEventListener('click', function () {
+        $('newCategoryName').value = '';
+        $('newCategoryIcon').value = '';
+        $('newCategoryProductSearch').value = '';
+        $('categoryCreateError').textContent = '';
+        newCategoryProductSelection = new Set();
+        renderAdminCategorySettings();
+        openModal('categoryCreateModal');
+        renderCategoryProductChecklist('', 'newCategoryProductsChecklist', newCategoryProductSelection, '', false);
+        $('newCategoryName').focus();
+    });
+    $('saveNewCategory').addEventListener('click', createAdminCategory);
+    $('saveEditedCategory').addEventListener('click', updateAdminCategory);
+    $('deleteEditedCategory').addEventListener('click', async function () {
+        var button = this;
+        var saveButton = $('saveEditedCategory');
+        button.disabled = true;
+        saveButton.disabled = true;
+        try {
+            await deleteAdminCategory($('categoryEditModal').dataset.categoryId);
+        } finally {
+            button.disabled = false;
+            saveButton.disabled = false;
+        }
+    });
+    $('newCategoryProductSearch').addEventListener('input', function () {
+        renderCategoryProductChecklist('', 'newCategoryProductsChecklist', newCategoryProductSelection, this.value, false);
+    });
+    $('newCategoryProductsChecklist').addEventListener('change', function (event) {
+        var checkbox = event.target.closest('[data-category-product-id]');
+        if (!checkbox) return;
+        if (checkbox.checked) newCategoryProductSelection.add(checkbox.dataset.categoryProductId);
+        else newCategoryProductSelection.delete(checkbox.dataset.categoryProductId);
+    });
+    $('manageCategorySelect').addEventListener('change', function () {
+        managedCategoryId = this.value;
+        managedCategorySelection = new Set(items.filter(function (item) { return item.categoryId === managedCategoryId && managedCategoryId; }).map(function (item) { return item.id; }));
+        $('categoryManageError').textContent = '';
+        renderCategoryProductChecklist(managedCategoryId, 'manageProductsChecklist', managedCategorySelection, $('manageProductSearch').value, true);
+    });
+    $('manageProductSearch').addEventListener('input', function () {
+        renderCategoryProductChecklist(managedCategoryId, 'manageProductsChecklist', managedCategorySelection, this.value, true);
+    });
+    $('manageProductsChecklist').addEventListener('change', function (event) {
+        var checkbox = event.target.closest('[data-category-product-id]');
+        if (!checkbox) return;
+        if (checkbox.checked) managedCategorySelection.add(checkbox.dataset.categoryProductId);
+        else managedCategorySelection.delete(checkbox.dataset.categoryProductId);
+    });
+    $('saveCategoryProducts').addEventListener('click', saveAdminCategoryProducts);
+    $('adminCategoriesList').addEventListener('click', function (event) {
+        var button = event.target.closest('[data-category-action]');
+        if (!button) return;
+        if (button.dataset.categoryAction === 'edit') openAdminCategoryEditor(button.dataset.categoryId);
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key !== 'Escape') return;
+        if (!$('categoryEditModal').hidden) closeModal('categoryEditModal');
+        else if (!$('categoryCreateModal').hidden) closeModal('categoryCreateModal');
+        else if (!$('settingsModal').hidden) closeModal('settingsModal');
+    });
     $('productsGrid').addEventListener('click', function (event) {
+        var mechanicPriceButton = event.target.closest('.mechanic-price');
+        if (mechanicPriceButton) {
+            var mechanicPriceCard = mechanicPriceButton.closest('.product-card');
+            if (mechanicPriceCard.classList.contains('mechanic-price-obscured')) {
+                clearTimeout(mechanicPriceCard._mechanicPriceRevealTimer);
+                mechanicPriceCard.classList.remove('mechanic-price-obscured');
+                mechanicPriceCard._mechanicPriceRevealTimer = setTimeout(function () {
+                    mechanicPriceCard.classList.add('mechanic-price-obscured');
+                    mechanicPriceCard._mechanicPriceRevealTimer = null;
+                }, 5000);
+                return;
+            }
+        }
+        var purchasePriceButton = event.target.closest('.purchase-price');
+        if (purchasePriceButton) {
+            var purchasePriceCard = purchasePriceButton.closest('.product-card');
+            clearTimeout(purchasePriceCard._purchasePriceRevealTimer);
+            if (!purchasePriceCard.classList.contains('purchase-price-obscured')) {
+                purchasePriceCard.classList.add('purchase-price-obscured');
+                purchasePriceButton.setAttribute('aria-pressed', 'false');
+                purchasePriceButton.setAttribute('aria-label', 'إظهار سعر الشراء');
+                purchasePriceCard._purchasePriceRevealTimer = null;
+            } else {
+                purchasePriceCard.classList.remove('purchase-price-obscured');
+                purchasePriceButton.setAttribute('aria-pressed', 'true');
+                purchasePriceButton.setAttribute('aria-label', 'إخفاء سعر الشراء');
+                purchasePriceCard._purchasePriceRevealTimer = setTimeout(function () {
+                    purchasePriceCard.classList.add('purchase-price-obscured');
+                    purchasePriceButton.setAttribute('aria-pressed', 'false');
+                    purchasePriceButton.setAttribute('aria-label', 'إظهار سعر الشراء');
+                    purchasePriceCard._purchasePriceRevealTimer = null;
+                }, 5000);
+            }
+            return;
+        }
+        var locationEditButton = event.target.closest('[data-edit-location]');
+        if (locationEditButton) {
+            var locationEditItem = items.find(function (entry) { return entry.id === locationEditButton.dataset.editLocation; });
+            if (locationEditItem) openProductLocationEditor(locationEditItem);
+            return;
+        }
+        var replaceImageButton = event.target.closest('[data-image-replace]');
+        if (replaceImageButton) {
+            var replaceImageItem = items.find(function (entry) { return entry.id === replaceImageButton.dataset.imageReplace; });
+            if (replaceImageItem) openProductImagePicker(replaceImageItem, false);
+            return;
+        }
         var locationButton = event.target.closest('[data-edit-product]');
         if (locationButton) {
             var locationItem = items.find(function (entry) { return entry.id === locationButton.dataset.editProduct; });
@@ -1405,6 +2542,8 @@
             var primaryImage = images.find(function (img) { return img.isPrimary; }) || images[0] || null;
             if (!primaryImage) return;
             var modal = ensureProductImageModal();
+            modal.dataset.itemId = product.id;
+            modal.querySelector('.product-image-replace').hidden = false;
             var imageElement = modal.querySelector('img');
             imageElement.src = primaryImage.url;
             imageElement.alt = product.name || 'صورة المنتج';
@@ -1444,6 +2583,22 @@
     function hideSplash() { setTimeout(function () { $('splashScreen').classList.add('ready'); }, 180); }
     var authStateObserved = false;
     var authStateResolved = false;
+    var authObserverStarted = false;
+    var authUiInitialized = false;
+    var appliedAuthUid = null;
+
+    function scheduleUiStateSave() {
+        clearTimeout(uiStateSaveTimer);
+        uiStateSaveTimer = setTimeout(saveUiState, 200);
+    }
+
+    document.addEventListener('input', scheduleUiStateSave);
+    document.addEventListener('change', scheduleUiStateSave);
+    document.addEventListener('click', scheduleUiStateSave);
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) saveUiState();
+    });
+    window.addEventListener('pagehide', saveUiState);
 
     async function applyAuthState(user) {
         var currentUser = user || (auth && auth.currentUser ? auth.currentUser : null);
@@ -1452,9 +2607,18 @@
         if (currentUser) {
             $('loginScreen').hidden = true;
             $('appShell').hidden = false;
-            await refreshUserDisplayNameMap();
-            await loadData();
+            if (!authUiInitialized || appliedAuthUid !== currentUser.uid) {
+                authUiInitialized = true;
+                appliedAuthUid = currentUser.uid;
+                var displayNamesPromise = refreshUserDisplayNameMap();
+                await loadData();
+                displayNamesPromise.then(function () {
+                    if (!$('historyModal').hidden) renderHistory();
+                }).catch(function (error) { console.warn('Unable to refresh seller names.', error); });
+            }
         } else if (authStateObserved || authStateResolved) {
+            authUiInitialized = true;
+            appliedAuthUid = null;
             $('loginScreen').hidden = false;
             $('appShell').hidden = true;
         }
@@ -1462,6 +2626,8 @@
     }
 
     function observeAuthState() {
+        if (authObserverStarted) return;
+        authObserverStarted = true;
         if (!auth) {
             authStateObserved = true;
             authStateResolved = true;
@@ -1526,12 +2692,13 @@
     });
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) {
-            if (auth && auth.currentUser) {
+            if (!authStateObserved) {
+                observeAuthState();
+            } else if ((auth && auth.currentUser ? auth.currentUser.uid : null) !== appliedAuthUid) {
                 authStateObserved = true;
                 authStateResolved = true;
-                applyAuthState(auth.currentUser);
+                applyAuthState(auth ? auth.currentUser : null);
             }
-            if (Date.now() - lastSyncAt > 5 * 60 * 1000 && dataLoaded) startLiveListeners();
         }
     });
 }());

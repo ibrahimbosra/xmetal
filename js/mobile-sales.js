@@ -6,6 +6,10 @@
     var auth = window.firebaseAuth;
     var SOURCE = 'mobile-sales';
     var items = [];
+    var categories = [];
+    var categoriesLoaded = false;
+    var productsLoaded = false;
+    var activeCategoryId = '';
     var sales = [];
     var currency = { secondaryCurrencySymbol: '﷼', exchangeRate: 3.75 };
     var selectedItem = null;
@@ -19,6 +23,10 @@
     var lastSyncAt = 0;
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobileSalesCacheV1';
+    var UI_STATE_KEY = CACHE_KEY + ':ui';
+    var pendingUiState = null;
+    var uiStateRestored = false;
+    var uiStateSaveTimer = null;
     var installPrompt = null;
     var historyStartDate = null;
     var historyLiveStartDate = null;
@@ -28,6 +36,9 @@
     var salePriceManuallyEdited = false;
     var saleDefaultPrice = null;
     var userDisplayNameMap = {};
+    var userDisplayNameMapPromise = null;
+    var userDisplayNameMapFetchedAt = 0;
+    var USER_DISPLAY_NAMES_CACHE_KEY = 'xmetalMobileSalesDisplayNamesCacheV1';
     var helpers = window.XMetalMobileSalesHelpers || {};
 
     var $ = function (id) { return document.getElementById(id); };
@@ -168,7 +179,25 @@
         return merged;
     }
 
-    async function refreshUserDisplayNameMap() {
+    function restoreUserDisplayNameMapCache() {
+        try {
+            var cached = JSON.parse(localStorage.getItem(USER_DISPLAY_NAMES_CACHE_KEY) || 'null');
+            if (cached && cached.map && typeof cached.map === 'object' && !Array.isArray(cached.map)) {
+                userDisplayNameMap = cached.map;
+                userDisplayNameMapFetchedAt = Number(cached.savedAt) || 0;
+            }
+        } catch (error) {
+            console.warn('Unable to read cached seller names.', error);
+        }
+    }
+
+    restoreUserDisplayNameMapCache();
+
+    function refreshUserDisplayNameMap() {
+        if (userDisplayNameMapPromise) return userDisplayNameMapPromise;
+        if (userDisplayNameMapFetchedAt && Date.now() - userDisplayNameMapFetchedAt < 60000) {
+            return Promise.resolve(userDisplayNameMap);
+        }
         var docs = [
             db.collection('settings').doc('userDisplayNames'),
             db.collection('settings').doc('userNames'),
@@ -176,16 +205,27 @@
             db.collection('systemSettings').doc('userNames'),
             db.collection('adminSettings').doc('userDisplayNames')
         ];
-        var merged = {};
-        for (var i = 0; i < docs.length; i += 1) {
-            try {
-                var doc = await docs[i].get();
-                if (!doc || !doc.exists) continue;
-                Object.assign(merged, mergeDisplayNameMap(doc.data()));
-            } catch (error) { /* Ignore missing settings docs */ }
-        }
-        userDisplayNameMap = merged;
-        return merged;
+        var refresh = Promise.all(docs.map(function (reference) {
+            return reference.get().then(function (doc) {
+                return doc && doc.exists ? mergeDisplayNameMap(doc.data()) : {};
+            }, function () { return {}; });
+        })).then(function (maps) {
+            var merged = {};
+            maps.forEach(function (map) { Object.assign(merged, map); });
+            userDisplayNameMap = merged;
+            userDisplayNameMapFetchedAt = Date.now();
+            try { localStorage.setItem(USER_DISPLAY_NAMES_CACHE_KEY, JSON.stringify({ map: merged, savedAt: userDisplayNameMapFetchedAt })); }
+            catch (error) { console.warn('Unable to cache seller names.', error); }
+            return merged;
+        });
+        userDisplayNameMapPromise = refresh.then(function (map) {
+            userDisplayNameMapPromise = null;
+            return map;
+        }, function (error) {
+            userDisplayNameMapPromise = null;
+            throw error;
+        });
+        return userDisplayNameMapPromise;
     }
 
     function getCurrentSellerInfo() {
@@ -292,8 +332,111 @@
         } catch (error) { return false; }
     }
 
+    function captureUiState() {
+        var values = {};
+        document.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (field) {
+            if (field.type === 'password' || field.type === 'file' || field.closest('#loginForm')) return;
+            values[field.id] = { value: field.value, checked: field.checked };
+        });
+        var modals = {};
+        ['saleModal', 'historyModal', 'priceWarning', 'quantityWarning'].forEach(function (id) {
+            var element = $(id);
+            if (element) modals[id] = element.hidden;
+        });
+        return {
+            values: values,
+            modals: modals,
+            productFilter: productFilter,
+            activeCategoryId: activeCategoryId,
+            inventorySort: inventorySort,
+            scrollY: window.scrollY,
+            selectedItemId: selectedItem && selectedItem.id || '',
+            editingSale: editingSale,
+            activeSaleMode: activeSaleMode,
+            saleDefaultPrice: saleDefaultPrice,
+            salePriceManuallyEdited: salePriceManuallyEdited,
+            unusualPriceApproved: unusualPriceApproved,
+            historyStartDate: historyStartDate ? historyStartDate.getTime() : null,
+            historyHasMore: historyHasMore
+        };
+    }
+
+    function saveUiState() {
+        try {
+            localStorage.setItem(UI_STATE_KEY, JSON.stringify(captureUiState()));
+        } catch (error) {
+            console.warn('Unable to persist mobile sales page state.', error);
+        }
+    }
+
+    function restoreUiState() {
+        if (uiStateRestored) return true;
+        if (!pendingUiState) {
+            try { pendingUiState = JSON.parse(localStorage.getItem(UI_STATE_KEY) || 'null'); }
+            catch (error) { console.warn('Unable to read saved mobile sales page state.', error); }
+        }
+        var state = pendingUiState;
+        if (!state || typeof state !== 'object') {
+            uiStateRestored = true;
+            return true;
+        }
+        productFilter = ['all', 'available', 'expired'].indexOf(state.productFilter) !== -1 ? state.productFilter : productFilter;
+        if (typeof state.activeCategoryId === 'string') activeCategoryId = state.activeCategoryId;
+        if (typeof state.inventorySort === 'string') inventorySort = state.inventorySort;
+        if (state.values && typeof state.values === 'object' && typeof state.values.productSearch === 'string') {
+            $('productSearch').value = state.values.productSearch;
+        }
+        renderProducts();
+
+        var saleModalOpen = state.modals && state.modals.saleModal === false;
+        var item = items.find(function (entry) { return entry.id === state.selectedItemId; });
+        var saleToEdit = state.editingSale && (sales.find(function (entry) { return entry.saleId === state.editingSale.saleId; }) || state.editingSale);
+        if (saleModalOpen && (state.editingSale ? !items.some(function (entry) { return entry.id === state.editingSale.itemId; }) : !item)) return false;
+        if (saleModalOpen) {
+            if (state.editingSale && saleToEdit) openEditSale(saleToEdit);
+            else openNewSale(item, state.activeSaleMode === 'mechanic' ? mechanicPrice(item) : item.salePrice, state.activeSaleMode);
+        }
+        if (state.values && typeof state.values === 'object') {
+            Object.keys(state.values).forEach(function (id) {
+                var field = $(id), saved = state.values[id];
+                if (!field || !saved || field.closest('#loginForm') || field.type === 'password' || field.type === 'file') return;
+                if (field.type === 'checkbox' || field.type === 'radio') field.checked = Boolean(saved.checked);
+                else if (typeof saved.value === 'string') field.value = saved.value;
+            });
+        }
+        updateSearchClearButton();
+        selectedItem = item || (state.editingSale && items.find(function (entry) { return entry.id === state.editingSale.itemId; })) || selectedItem;
+        editingSale = saleToEdit || null;
+        activeSaleMode = state.activeSaleMode || activeSaleMode;
+        saleDefaultPrice = state.saleDefaultPrice === null || Number.isFinite(Number(state.saleDefaultPrice)) ? state.saleDefaultPrice : saleDefaultPrice;
+        salePriceManuallyEdited = Boolean(state.salePriceManuallyEdited);
+        unusualPriceApproved = Boolean(state.unusualPriceApproved);
+        if (Number.isFinite(Number(state.historyStartDate)) && Number(state.historyStartDate) > 0) historyStartDate = new Date(Number(state.historyStartDate));
+        if (typeof state.historyHasMore === 'boolean') historyHasMore = state.historyHasMore;
+        if ($('saleModal')) $('saleModal').hidden = !saleModalOpen;
+        if (state.modals && state.modals.historyModal === false) {
+            renderHistory();
+            openModal('historyModal');
+        } else if ($('historyModal')) {
+            $('historyModal').hidden = true;
+        }
+        if (state.modals) {
+            ['priceWarning', 'quantityWarning'].forEach(function (id) {
+                if (typeof state.modals[id] === 'boolean' && $(id)) $(id).hidden = state.modals[id];
+            });
+        }
+        if (saleModalOpen) updateSalePriceGuide();
+        if ($('saleModal').hidden && $('historyModal').hidden) document.body.style.overflow = '';
+        else document.body.style.overflow = 'hidden';
+        var scrollY = Number(state.scrollY);
+        if (Number.isFinite(scrollY)) setTimeout(function () { window.scrollTo(0, scrollY); }, 0);
+        uiStateRestored = true;
+        pendingUiState = null;
+        return true;
+    }
+
     function openModal(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
-    function closeModal(id) { $(id).hidden = true; if ($('saleModal').hidden && $('historyModal').hidden) document.body.style.overflow = ''; }
+    function closeModal(id) { $(id).hidden = true; if ($('saleModal').hidden && $('historyModal').hidden) document.body.style.overflow = ''; saveUiState(); }
 
     function mechanicPrice(item) {
         var value = number(item.mechanicPrice);
@@ -302,6 +445,60 @@
 
     function compareArabic(a, b) {
         return String(a.name || '').localeCompare(String(b.name || ''), 'ar', { sensitivity: 'variant', usage: 'sort' });
+    }
+
+    function matchesProductFilter(item) {
+        var available = (number(item.quantity) || 0) > 0;
+        return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
+    }
+
+    function renderCategoryFilters() {
+        var nav = $('categoryFilters');
+        if (!nav) return;
+        var previousScrollLeft = nav.scrollLeft;
+        if (categoriesLoaded && activeCategoryId && (!categories.some(function (category) { return category.id === activeCategoryId; }) ||
+            (productsLoaded && !items.some(function (item) { return item.categoryId === activeCategoryId; })))) {
+            activeCategoryId = '';
+        }
+        nav.replaceChildren();
+        var uncategorizedCount = items.filter(function (item) { return !item.categoryId && matchesProductFilter(item); }).length;
+        var uncategorized = document.createElement('button');
+        uncategorized.type = 'button';
+        uncategorized.className = 'category-filter' + (activeCategoryId ? '' : ' active');
+        uncategorized.dataset.categoryFilter = '';
+        uncategorized.setAttribute('aria-pressed', String(!activeCategoryId));
+        var uncategorizedName = document.createElement('span');
+        uncategorizedName.className = 'category-filter-name';
+        uncategorizedName.textContent = 'الكل';
+        var uncategorizedCountElement = document.createElement('span');
+        uncategorizedCountElement.className = 'category-filter-count';
+        uncategorizedCountElement.textContent = String(uncategorizedCount);
+        uncategorized.appendChild(uncategorizedName);
+        uncategorized.appendChild(uncategorizedCountElement);
+        nav.appendChild(uncategorized);
+
+        categories.filter(function (category) {
+            return items.some(function (item) { return item.categoryId === category.id; });
+        }).sort(compareArabic).forEach(function (category) {
+            var count = items.filter(function (item) {
+                return item.categoryId === category.id && matchesProductFilter(item);
+            }).length;
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'category-filter' + (activeCategoryId === category.id ? ' active' : '');
+            button.dataset.categoryFilter = category.id;
+            button.setAttribute('aria-pressed', String(activeCategoryId === category.id));
+            var name = document.createElement('span');
+            name.className = 'category-filter-name';
+            name.textContent = category.name || 'فئة';
+            var countElement = document.createElement('span');
+            countElement.className = 'category-filter-count';
+            countElement.textContent = String(count);
+            button.appendChild(name);
+            button.appendChild(countElement);
+            nav.appendChild(button);
+        });
+        nav.scrollLeft = previousScrollLeft;
     }
 
     function compareInventoryItems(a, b) {
@@ -314,8 +511,7 @@
     function filterAndSortProducts(term) {
         var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
         var source = (Array.isArray(items) ? items : []).filter(function (item) {
-            var available = (number(item.quantity) || 0) > 0;
-            return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
+            return matchesProductFilter(item) && (activeCategoryId ? item.categoryId === activeCategoryId : !item.categoryId);
         });
         if (searchTerm) {
             var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });
@@ -341,6 +537,7 @@
         };
         document.querySelectorAll('[data-filter-count]').forEach(function (element) { element.textContent = counts[element.dataset.filterCount] || 0; });
         document.querySelectorAll('[data-product-filter]').forEach(function (button) { button.classList.toggle('active', button.dataset.productFilter === productFilter); });
+        renderCategoryFilters();
     }
 
     function updateSearchSummary(searchTerm, visibleCount) {
@@ -376,7 +573,7 @@
                 element.innerHTML =
                 (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
                 '<h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
-                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong>' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
+                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong class="location-value">' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
                 '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(productSecondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
                 '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + price(productSecondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
@@ -805,7 +1002,7 @@
                     console.warn('Mobile sales offline update queued', offlineUpdateError);
                 }
             }
-            closeModal('saleModal'); renderProducts(); renderHistory();
+            closeModal('saleModal'); renderProducts(); renderHistory(); saveUiState();
         } catch (error) { showError('saleError', error.message || 'تعذر حفظ العملية'); }
         button.disabled = false;
     }
@@ -891,8 +1088,9 @@
         var hasCache = restoreCache();
         historyLiveStartDate = historyInitialStart();
         historyStartDate = historyLiveStartDate;
-        sales = sales.filter(function (sale) { var timestamp = timestampValue(sale.timestamp); return timestamp >= historyLiveStartDate.getTime() && timestamp < addDays(historyLiveStartDate, 2).getTime(); });
+        sales = uniqueSales(sales);
         if (hasCache) { renderProducts(); renderHistory(); }
+        restoreUiState();
         try { flushPendingSalesQueue(); } catch (error) { console.warn('Pending mobile sales flush setup failed', error); }
         startLiveListeners();
         if (hasCache) return;
@@ -904,6 +1102,7 @@
                 items = result[0].docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
                 if (result[1].exists) currency = Object.assign(currency, result[1].data());
                 renderProducts(); renderHistory(); saveCache();
+                restoreUiState();
             });
             await Promise.race([cacheRead, new Promise(function (resolve) { setTimeout(resolve, 1200); })]);
         } catch (error) { notify('تعذر الاتصال بالنظام'); console.error(error); }
@@ -914,12 +1113,24 @@
         listenersStarted = true;
         db.collection('items').onSnapshot(function (snap) {
             var nextItems = snap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            var firstProductsSnapshot = !productsLoaded;
+            productsLoaded = true;
             var changed = nextItems.length !== items.length || nextItems.some(function (next) {
                 var previous = items.find(function (item) { return item.id === next.id; });
                 return !previous || JSON.stringify(previous) !== JSON.stringify(next);
             });
-            if (changed) { items = nextItems; renderProducts(); saveCache(); }
+            if (changed) { items = nextItems; renderProducts(); saveCache(); restoreUiState(); }
+            else if (firstProductsSnapshot) renderProducts();
             lastSyncAt = Date.now();
+        });
+        db.collection('categories').onSnapshot(function (snap) {
+            categories = snap.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            categoriesLoaded = true;
+            renderProducts();
+        }, function (error) {
+            console.error('Mobile sales category sync failed:', error);
+            categoriesLoaded = true;
+            renderProducts();
         });
         historyLiveStartDate = historyLiveStartDate || historyInitialStart();
         historyStartDate = historyStartDate || historyLiveStartDate;
@@ -936,6 +1147,18 @@
         });
     }
 
+    function updateSearchClearButton() {
+        $('clearProductSearch').hidden = !$('productSearch').value;
+    }
+
+    $('clearProductSearch').addEventListener('click', function () {
+        $('productSearch').value = '';
+        $('productSearch').dispatchEvent(new Event('input', { bubbles: true }));
+        $('productSearch').focus();
+    });
+    $('productSearch').addEventListener('input', updateSearchClearButton);
+    updateSearchClearButton();
+
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
     $('productSearch').addEventListener('input', function () { renderProducts(); scrollToProductsTop(); });
     $('productFilters').addEventListener('click', function (event) {
@@ -943,6 +1166,15 @@
         if (!button) return;
         productFilter = button.dataset.productFilter || 'available';
         renderProducts();
+        saveUiState();
+        scrollToProductsTop();
+    });
+    $('categoryFilters').addEventListener('click', function (event) {
+        var button = event.target.closest('[data-category-filter]');
+        if (!button) return;
+        activeCategoryId = button.dataset.categoryFilter || '';
+        renderProducts();
+        saveUiState();
         scrollToProductsTop();
     });
     $('saleQuantity').addEventListener('input', function () {
@@ -971,6 +1203,7 @@
     $('confirmUnusualPrice').addEventListener('click', function () { unusualPriceApproved = true; $('priceWarning').hidden = true; $('saleForm').requestSubmit(); });
     window.addEventListener('scroll', function () {
         try { localStorage.setItem(CACHE_KEY + ':scrollY', String(window.scrollY)); } catch (error) {}
+        scheduleUiStateSave();
         updateCustomScrollbar();
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
@@ -1033,6 +1266,22 @@
     function hideSplash() { setTimeout(function () { $('splashScreen').classList.add('ready'); }, 180); }
     var authStateObserved = false;
     var authStateResolved = false;
+    var authObserverStarted = false;
+    var authUiInitialized = false;
+    var appliedAuthUid = null;
+
+    function scheduleUiStateSave() {
+        clearTimeout(uiStateSaveTimer);
+        uiStateSaveTimer = setTimeout(saveUiState, 200);
+    }
+
+    document.addEventListener('input', scheduleUiStateSave);
+    document.addEventListener('change', scheduleUiStateSave);
+    document.addEventListener('click', scheduleUiStateSave);
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) saveUiState();
+    });
+    window.addEventListener('pagehide', saveUiState);
 
     async function applyAuthState(user) {
         var currentUser = user || (auth && auth.currentUser ? auth.currentUser : null);
@@ -1041,9 +1290,18 @@
         if (currentUser) {
             $('loginScreen').hidden = true;
             $('appShell').hidden = false;
-            await refreshUserDisplayNameMap();
-            await loadData();
+            if (!authUiInitialized || appliedAuthUid !== currentUser.uid) {
+                authUiInitialized = true;
+                appliedAuthUid = currentUser.uid;
+                var displayNamesPromise = refreshUserDisplayNameMap();
+                await loadData();
+                displayNamesPromise.then(function () {
+                    if (!$('historyModal').hidden) renderHistory();
+                }).catch(function (error) { console.warn('Unable to refresh seller names.', error); });
+            }
         } else if (authStateObserved || authStateResolved) {
+            authUiInitialized = true;
+            appliedAuthUid = null;
             $('loginScreen').hidden = false;
             $('appShell').hidden = true;
         }
@@ -1051,6 +1309,8 @@
     }
 
     function observeAuthState() {
+        if (authObserverStarted) return;
+        authObserverStarted = true;
         if (!auth) {
             authStateObserved = true;
             authStateResolved = true;
@@ -1115,12 +1375,13 @@
     });
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) {
-            if (auth && auth.currentUser) {
+            if (!authStateObserved) {
+                observeAuthState();
+            } else if ((auth && auth.currentUser ? auth.currentUser.uid : null) !== appliedAuthUid) {
                 authStateObserved = true;
                 authStateResolved = true;
-                applyAuthState(auth.currentUser);
+                applyAuthState(auth ? auth.currentUser : null);
             }
-            if (Date.now() - lastSyncAt > 5 * 60 * 1000 && dataLoaded) startLiveListeners();
         }
     });
 }());

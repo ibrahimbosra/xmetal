@@ -1,9 +1,9 @@
-const CACHE_NAME = 'xmetal-mob-admin-v3';
+const CACHE_NAME = 'xmetal-mob-admin-v33';
 const APP_SHELL = [
     './mob-admin.html',
     './mob-admin-manifest.json',
-    './css/mob-admin.css',
-    './js/mob-admin.js',
+    './css/mob-admin.css?v=purchase-price-two-decimals-2',
+    './js/mob-admin.js?v=purchase-price-two-decimals-2',
     './js/firebase-config.js',
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',
@@ -53,17 +53,18 @@ self.addEventListener('fetch', event => {
 
     if (!isStaticRequest(request, url)) return;
 
+    const updateCache = fetch(request).then(async response => {
+        if (response && response.ok && response.type === 'basic') {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone()).catch(() => {});
+        }
+        return response;
+    }).catch(() => null);
+
     event.respondWith((async () => {
         const cached = await caches.match(request).catch(() => null);
-        try {
-            const response = await fetch(request);
-            if (response && response.ok && response.type === 'basic') {
-                const cache = await caches.open(CACHE_NAME);
-                await cache.put(request, response.clone()).catch(() => {});
-            }
-            return response;
-        } catch (error) {
-            return cached || new Response('', { status: 503, statusText: 'Offline' });
-        }
+        if (cached) return cached;
+        return await updateCache || new Response('', { status: 503, statusText: 'Offline' });
     })());
+    event.waitUntil(updateCache.then(() => undefined));
 });

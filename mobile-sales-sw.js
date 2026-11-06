@@ -1,9 +1,9 @@
-const CACHE_NAME = 'xmetal-mobile-sales-v4';
+const CACHE_NAME = 'xmetal-mobile-sales-v11';
 const APP_SHELL = [
     './mobile-sales.html',
     './manifest.json',
-    './css/mobile-sales.css',
-    './js/mobile-sales.js',
+    './css/mobile-sales.css?v=category-filter-sticky-6',
+    './js/mobile-sales.js?v=category-filter-bar-1',
     './js/firebase-config.js',
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',
@@ -55,18 +55,18 @@ self.addEventListener('fetch', event => {
 
     if (!isStaticRequest(request, url)) return;
 
+    const updateCache = fetch(request).then(async response => {
+        if (response && response.ok && response.type === 'basic') {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone()).catch(() => {});
+        }
+        return response;
+    }).catch(() => null);
+
     event.respondWith((async () => {
         const cached = await caches.match(request).catch(() => null);
-        try {
-            const response = await fetch(request);
-            if (response && response.ok && response.type === 'basic') {
-                const copy = response.clone();
-                const cache = await caches.open(CACHE_NAME);
-                await cache.put(request, copy).catch(() => {});
-            }
-            return response;
-        } catch (error) {
-            return cached || new Response('', { status: 503, statusText: 'Offline' });
-        }
+        if (cached) return cached;
+        return await updateCache || new Response('', { status: 503, statusText: 'Offline' });
     })());
+    event.waitUntil(updateCache.then(() => undefined));
 });

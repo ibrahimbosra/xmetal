@@ -20,7 +20,7 @@
     <link rel="apple-touch-icon" href="icons/icon-192.svg">
     <title>X METAL - لوحة الإدارة</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/mob-admin.css?v=admin-dark-mode-1">
+    <link rel="stylesheet" href="css/mob-admin.css?v=purchase-price-two-decimals-2">
 </head>
 <body>
     <div class="splash-screen" id="splashScreen" aria-label="جاري تشغيل نقطة البيع">
@@ -54,19 +54,23 @@
         <section class="toolbar" aria-label="البحث في المنتجات">
             <label class="search-box">
                 <span class="search-icon" aria-hidden="true">⌕</span>
-                <input id="productSearch" type="search" placeholder="ابحث عن منتج" autocomplete="off">
+                <input id="productSearch" type="text" inputmode="search" enterkeyhint="search" placeholder="ابحث عن منتج" autocomplete="off">
+                <button class="search-clear-button" id="clearProductSearch" type="button" aria-label="مسح البحث" hidden>×</button>
             </label>
             <button class="install-button" id="installButton" type="button" aria-label="تثبيت التطبيق" title="تثبيت التطبيق"><i class="fas fa-download" aria-hidden="true"></i></button>
+            <button class="theme-toggle-button" id="settingsButton" type="button" aria-label="الإعدادات" title="الإعدادات"><i class="fas fa-cog" aria-hidden="true"></i></button>
             <button class="add-product-button" id="addProductButton" type="button" aria-label="إنشاء منتج جديد">+</button>
             <button class="history-button" id="historyButton" type="button" aria-label="فتح السجل" title="فتح السجل"><i class="fas fa-history" aria-hidden="true"></i></button>
-            <button class="theme-toggle-button" id="themeToggleButton" type="button" aria-label="التبديل إلى الوضع النهاري" title="التبديل إلى الوضع النهاري" aria-pressed="true"><i class="fas fa-sun" aria-hidden="true"></i></button>
         </section>
 
-        <nav class="product-filters" id="productFilters" aria-label="تصفية المنتجات">
-            <button class="product-filter" type="button" data-product-filter="all"><span>كل المنتجات</span><span class="filter-count" data-filter-count="all">0</span></button>
-            <button class="product-filter active" type="button" data-product-filter="available"><span>المتوفر</span><span class="filter-count" data-filter-count="available">0</span></button>
-            <button class="product-filter" type="button" data-product-filter="expired"><span>المنتهية</span><span class="filter-count" data-filter-count="expired">0</span></button>
-        </nav>
+        <div class="sticky-product-filters">
+            <nav class="product-filters" id="productFilters" aria-label="تصفية المنتجات">
+                <button class="product-filter" type="button" data-product-filter="all"><span>كل المنتجات</span><span class="filter-count" data-filter-count="all">0</span></button>
+                <button class="product-filter active" type="button" data-product-filter="available"><span>المتوفر</span><span class="filter-count" data-filter-count="available">0</span></button>
+                <button class="product-filter" type="button" data-product-filter="expired"><span>المنتهية</span><span class="filter-count" data-filter-count="expired">0</span></button>
+            </nav>
+            <nav class="category-filters" id="categoryFilters" aria-label="تصفية الفئات" dir="rtl"></nav>
+        </div>
         <div class="search-summary" id="searchSummary" aria-live="polite" hidden></div>
         <section class="products-grid" id="productsGrid" aria-live="polite"></section>
         <div class="empty-state" id="productsEmpty" hidden>لا توجد منتجات متاحة</div>
@@ -99,12 +103,90 @@
         </section>
     </div>
 
+    <div class="modal-backdrop category-create-backdrop" id="categoryEditModal" hidden>
+        <section class="modal category-create-modal" role="dialog" aria-modal="true" aria-labelledby="categoryEditTitle">
+            <button class="close-button" data-close-modal="categoryEditModal" type="button" aria-label="إغلاق">×</button>
+            <p class="eyebrow">الفئات</p>
+            <h2 id="categoryEditTitle">تعديل الفئة</h2>
+            <label for="editCategoryName">اسم الفئة</label>
+            <input id="editCategoryName" type="text" maxlength="100" autocomplete="off" placeholder="اسم الفئة">
+            <label for="editCategoryIcon">الأيقونة</label>
+            <input id="editCategoryIcon" type="text" maxlength="100" autocomplete="off" dir="ltr" placeholder="fas fa-tag">
+            <p class="input-hint">أدخل اسم أيقونة Font Awesome، مثل: fas fa-tag</p>
+            <div class="category-edit-actions">
+                <button class="primary-button" id="saveEditedCategory" type="button">حفظ التعديلات</button>
+                <button class="category-edit-delete" id="deleteEditedCategory" type="button">حذف الفئة</button>
+            </div>
+            <p class="form-error" id="categoryEditError" role="alert"></p>
+        </section>
+    </div>
+
     <div class="modal-backdrop" id="historyModal" hidden>
         <section class="modal history-modal" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
             <button class="close-button" data-close-modal="historyModal" type="button" aria-label="إغلاق">×</button>
             <p class="eyebrow">عمليات هذه الصفحة فقط</p>
             <h2 id="historyTitle">السجل</h2>
             <div id="salesHistory" class="sales-history" aria-live="polite"></div>
+        </section>
+    </div>
+
+    <div class="modal-backdrop settings-backdrop" id="settingsModal" hidden>
+        <section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+            <button class="close-button" data-close-modal="settingsModal" type="button" aria-label="إغلاق">×</button>
+            <p class="eyebrow">إعدادات نقطة البيع</p>
+            <h2 id="settingsTitle">الإعدادات</h2>
+            <div class="settings-tabs" role="tablist" aria-label="أقسام الإعدادات">
+                <button class="settings-tab active" id="categorySettingsTab" type="button" role="tab" aria-selected="true" aria-controls="categorySettingsPanel" data-settings-tab="categorySettingsPanel"><i class="fas fa-tags" aria-hidden="true"></i> الفئات</button>
+                <button class="settings-tab" id="displaySettingsTab" type="button" role="tab" aria-selected="false" aria-controls="displaySettingsPanel" data-settings-tab="displaySettingsPanel" tabindex="-1"><i class="fas fa-display" aria-hidden="true"></i> العرض</button>
+            </div>
+            <section class="settings-section" id="categorySettingsPanel" role="tabpanel" aria-labelledby="categorySettingsTab">
+                <div class="settings-tabs category-settings-tabs" role="tablist" aria-label="أقسام الفئات">
+                    <button class="settings-tab active" id="assignCategoryProductsTab" type="button" role="tab" aria-selected="true" aria-controls="assignCategoryProductsPanel" data-category-tab="assignCategoryProductsPanel"><i class="fas fa-boxes-stacked" aria-hidden="true"></i> إضافة منتجات إلى فئة</button>
+                    <button class="settings-tab" id="manageCategoriesTab" type="button" role="tab" aria-selected="false" aria-controls="manageCategoriesPanel" data-category-tab="manageCategoriesPanel" tabindex="-1"><i class="fas fa-tags" aria-hidden="true"></i> إضافة وإدارة الفئات</button>
+                </div>
+                <section class="category-settings-panel" id="assignCategoryProductsPanel" role="tabpanel" aria-labelledby="assignCategoryProductsTab">
+                    <div class="category-assignment">
+                        <label for="manageCategorySelect">الفئة المحددة</label>
+                        <select id="manageCategorySelect"><option value="">اختر فئة</option></select>
+                        <input id="manageProductSearch" type="text" inputmode="search" placeholder="ابحث عن منتج" autocomplete="off" aria-label="البحث في المنتجات المتاحة للفئة">
+                        <div id="manageProductsChecklist" class="category-products-checklist"></div>
+                        <button class="primary-button" id="saveCategoryProducts" type="button">حفظ منتجات الفئة</button>
+                        <p class="form-error" id="categoryManageError" role="alert"></p>
+                    </div>
+                </section>
+                <section class="category-settings-panel" id="manageCategoriesPanel" role="tabpanel" aria-labelledby="manageCategoriesTab" hidden>
+                    <div class="settings-section-heading">
+                        <h3 id="categorySettingsTitle">إضافة وإدارة الفئات</h3>
+                        <button class="primary-button settings-add-category" id="addCategoryButton" type="button">+ إضافة فئة</button>
+                    </div>
+                    <div id="adminCategoriesList" class="admin-categories-list" aria-live="polite"></div>
+                </section>
+            </section>
+            <section class="settings-section display-settings" id="displaySettingsPanel" role="tabpanel" aria-labelledby="displaySettingsTab" hidden>
+                <h3 id="displaySettingsTitle"><i class="fas fa-display" aria-hidden="true"></i> العرض</h3>
+                <div class="display-setting-row">
+                    <div><strong>المظهر</strong><span>تغيير الوضع الليلي أو النهاري</span></div>
+                    <button class="theme-toggle-button" id="themeToggleButton" type="button" aria-label="التبديل إلى الوضع النهاري" title="التبديل إلى الوضع النهاري" aria-pressed="true"><i class="fas fa-sun" aria-hidden="true"></i></button>
+                </div>
+            </section>
+        </section>
+    </div>
+
+    <div class="modal-backdrop category-create-backdrop" id="categoryCreateModal" hidden>
+        <section class="modal category-create-modal" role="dialog" aria-modal="true" aria-labelledby="categoryCreateTitle">
+            <button class="close-button" data-close-modal="categoryCreateModal" type="button" aria-label="إغلاق">×</button>
+            <p class="eyebrow">الفئات</p>
+            <h2 id="categoryCreateTitle">إضافة فئة</h2>
+            <label for="newCategoryName">اسم الفئة</label>
+            <input id="newCategoryName" type="text" maxlength="100" autocomplete="off" placeholder="اسم الفئة">
+            <label for="newCategoryIcon">الأيقونة</label>
+            <input id="newCategoryIcon" type="text" maxlength="100" autocomplete="off" dir="ltr" placeholder="fas fa-tag">
+            <p class="input-hint">أدخل اسم أيقونة Font Awesome، مثل: fas fa-tag</p>
+            <label for="newCategoryProductSearch">اختيار منتجات (اختياري)</label>
+            <input id="newCategoryProductSearch" type="text" inputmode="search" placeholder="ابحث عن منتج" autocomplete="off">
+            <div id="newCategoryProductsChecklist" class="category-products-checklist"></div>
+            <button class="primary-button" id="saveNewCategory" type="button">إضافة الفئة</button>
+            <p class="form-error" id="categoryCreateError" role="alert"></p>
         </section>
     </div>
 
@@ -121,6 +203,6 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/mob-admin-helpers.js"></script>
     <script src="js/pricingHelpers.js?v=20260929"></script>
-    <script src="js/mob-admin.js?v=admin-dark-mode-1"></script>
+    <script src="js/mob-admin.js?v=purchase-price-two-decimals-2"></script>
 </body>
 </html>
