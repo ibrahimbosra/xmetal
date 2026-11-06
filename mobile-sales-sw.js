@@ -1,9 +1,9 @@
-const CACHE_NAME = 'xmetal-mobile-sales-v11';
+const CACHE_NAME = 'xmetal-mobile-sales-v13';
 const APP_SHELL = [
     './mobile-sales.html',
     './manifest.json',
-    './css/mobile-sales.css?v=category-filter-sticky-6',
-    './js/mobile-sales.js?v=category-filter-bar-1',
+    './css/mobile-sales.css?v=employee-no-product-edit-1',
+    './js/mobile-sales.js?v=employee-no-product-edit-1',
     './js/firebase-config.js',
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',

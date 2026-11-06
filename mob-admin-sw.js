@@ -1,9 +1,9 @@
-const CACHE_NAME = 'xmetal-mob-admin-v33';
+const CACHE_NAME = 'xmetal-mob-admin-v34';
 const APP_SHELL = [
     './mob-admin.html',
     './mob-admin-manifest.json',
     './css/mob-admin.css?v=purchase-price-two-decimals-2',
-    './js/mob-admin.js?v=purchase-price-two-decimals-2',
+    './js/mob-admin.js?v=category-all-products-1',
     './js/firebase-config.js',
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',

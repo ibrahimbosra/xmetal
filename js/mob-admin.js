@@ -1605,21 +1605,21 @@
             activeProductCategoryId = '';
         }
         nav.replaceChildren();
-        var uncategorizedCount = items.filter(function (item) { return !item.categoryId && matchesProductFilter(item); }).length;
-        var uncategorized = document.createElement('button');
-        uncategorized.type = 'button';
-        uncategorized.className = 'category-filter' + (activeProductCategoryId ? '' : ' active');
-        uncategorized.dataset.categoryFilter = '';
-        uncategorized.setAttribute('aria-pressed', String(!activeProductCategoryId));
-        var uncategorizedName = document.createElement('span');
-        uncategorizedName.className = 'category-filter-name';
-        uncategorizedName.textContent = 'الكل';
-        var uncategorizedCountElement = document.createElement('span');
-        uncategorizedCountElement.className = 'category-filter-count';
-        uncategorizedCountElement.textContent = String(uncategorizedCount);
-        uncategorized.appendChild(uncategorizedName);
-        uncategorized.appendChild(uncategorizedCountElement);
-        nav.appendChild(uncategorized);
+        var allProductsCount = items.filter(matchesProductFilter).length;
+        var allProducts = document.createElement('button');
+        allProducts.type = 'button';
+        allProducts.className = 'category-filter' + (activeProductCategoryId ? '' : ' active');
+        allProducts.dataset.categoryFilter = '';
+        allProducts.setAttribute('aria-pressed', String(!activeProductCategoryId));
+        var allProductsName = document.createElement('span');
+        allProductsName.className = 'category-filter-name';
+        allProductsName.textContent = 'الكل';
+        var allProductsCountElement = document.createElement('span');
+        allProductsCountElement.className = 'category-filter-count';
+        allProductsCountElement.textContent = String(allProductsCount);
+        allProducts.appendChild(allProductsName);
+        allProducts.appendChild(allProductsCountElement);
+        nav.appendChild(allProducts);
 
         categories.filter(function (category) {
             return items.some(function (item) { return item.categoryId === category.id; });
@@ -1648,7 +1648,7 @@
     function filterAndSortProducts(term) {
         var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
         var source = (Array.isArray(items) ? items : []).filter(function (item) {
-            return matchesProductFilter(item) && (activeProductCategoryId ? item.categoryId === activeProductCategoryId : !item.categoryId);
+            return matchesProductFilter(item) && (!activeProductCategoryId || item.categoryId === activeProductCategoryId);
         });
         if (searchTerm) {
             var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });

@@ -96,64 +96,6 @@
         return modal;
     }
 
-    function ensureLocationEditModal() {
-        var modal = document.getElementById('locationEditModal');
-        if (modal) return modal;
-        modal = document.createElement('div');
-        modal.id = 'locationEditModal';
-        modal.className = 'location-edit-modal';
-        modal.hidden = true;
-        modal.innerHTML = '<div class="location-edit-backdrop" data-close-location-edit="true"></div><section class="location-edit-content" role="dialog" aria-modal="true" aria-labelledby="locationEditTitle"><button type="button" class="location-edit-close" aria-label="إغلاق">×</button><p class="eyebrow">تعديل بيانات المنتج</p><h2 id="locationEditTitle">تعديل المنتج</h2><p class="location-edit-product" id="locationEditProduct"></p><form id="locationEditForm"><label for="locationEditInput">الموقع</label><input id="locationEditInput" type="text" maxlength="120" autocomplete="off" placeholder="مثال: رف 12"><label for="imageUrlEditInput">رابط الصورة</label><input id="imageUrlEditInput" type="url" maxlength="1000" autocomplete="off" dir="ltr" placeholder="https://..."><p class="input-hint">اتركه فارغًا لإزالة صورة المنتج.</p><div class="location-edit-actions"><button type="button" class="location-edit-cancel">إلغاء</button><button type="submit" class="location-edit-save">حفظ</button></div><p class="form-error" id="locationEditError" role="alert"></p></form></section>';
-        modal.querySelector('label[for="imageUrlEditInput"]').remove();
-        modal.querySelector('#imageUrlEditInput').remove();
-        modal.querySelector('.input-hint').remove();
-        document.body.appendChild(modal);
-        var close = function () { modal.hidden = true; };
-        modal.querySelector('.location-edit-close').addEventListener('click', close);
-        modal.querySelector('.location-edit-cancel').addEventListener('click', close);
-        modal.addEventListener('click', function (event) { if (event.target.hasAttribute('data-close-location-edit')) close(); });
-        document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !modal.hidden) close(); });
-        modal.querySelector('#locationEditForm').addEventListener('submit', async function (event) {
-            event.preventDefault();
-            var itemId = modal.dataset.itemId, item = items.find(function (entry) { return entry.id === itemId; });
-            var input = modal.querySelector('#locationEditInput'), error = modal.querySelector('#locationEditError'), save = modal.querySelector('.location-edit-save');
-            if (!item) return;
-            error.textContent = '';
-            save.disabled = true;
-            try {
-                var location = input.value.trim();
-                var images = Array.isArray(item.images) ? item.images.map(function (image) { return image && typeof image === 'object' ? Object.assign({}, image) : image; }) : [];
-                await db.collection('items').doc(itemId).update({ location: location, images: images, updatedAt: Date.now() });
-                item.location = location;
-                item.images = images;
-                saveCache();
-                modal.hidden = true;
-                renderProducts();
-                notify('تم تحديث مكان القطعة');
-            } catch (updateError) {
-                error.textContent = 'تعذر حفظ مكان القطعة حاليًا';
-                console.error(updateError);
-            } finally {
-                save.disabled = false;
-            }
-        });
-        return modal;
-    }
-
-    function openLocationEdit(item) {
-        var modal = ensureLocationEditModal();
-        var content = modal.querySelector('.location-edit-content');
-        modal.dataset.itemId = item.id;
-        modal.querySelector('#locationEditProduct').textContent = item.name || 'منتج';
-        modal.querySelector('#locationEditInput').value = item.location || '';
-        modal.querySelector('#locationEditError').textContent = '';
-        modal.hidden = false;
-        requestAnimationFrame(function () {
-            content.style.top = '';
-            content.style.left = '';
-        });
-    }
-
     function notify(message) {
         var el = $('toast'); el.textContent = message; el.classList.add('show');
         clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
@@ -461,21 +403,21 @@
             activeCategoryId = '';
         }
         nav.replaceChildren();
-        var uncategorizedCount = items.filter(function (item) { return !item.categoryId && matchesProductFilter(item); }).length;
-        var uncategorized = document.createElement('button');
-        uncategorized.type = 'button';
-        uncategorized.className = 'category-filter' + (activeCategoryId ? '' : ' active');
-        uncategorized.dataset.categoryFilter = '';
-        uncategorized.setAttribute('aria-pressed', String(!activeCategoryId));
-        var uncategorizedName = document.createElement('span');
-        uncategorizedName.className = 'category-filter-name';
-        uncategorizedName.textContent = 'الكل';
-        var uncategorizedCountElement = document.createElement('span');
-        uncategorizedCountElement.className = 'category-filter-count';
-        uncategorizedCountElement.textContent = String(uncategorizedCount);
-        uncategorized.appendChild(uncategorizedName);
-        uncategorized.appendChild(uncategorizedCountElement);
-        nav.appendChild(uncategorized);
+        var allProductsCount = items.filter(matchesProductFilter).length;
+        var allProducts = document.createElement('button');
+        allProducts.type = 'button';
+        allProducts.className = 'category-filter' + (activeCategoryId ? '' : ' active');
+        allProducts.dataset.categoryFilter = '';
+        allProducts.setAttribute('aria-pressed', String(!activeCategoryId));
+        var allProductsName = document.createElement('span');
+        allProductsName.className = 'category-filter-name';
+        allProductsName.textContent = 'الكل';
+        var allProductsCountElement = document.createElement('span');
+        allProductsCountElement.className = 'category-filter-count';
+        allProductsCountElement.textContent = String(allProductsCount);
+        allProducts.appendChild(allProductsName);
+        allProducts.appendChild(allProductsCountElement);
+        nav.appendChild(allProducts);
 
         categories.filter(function (category) {
             return items.some(function (item) { return item.categoryId === category.id; });
@@ -511,7 +453,7 @@
     function filterAndSortProducts(term) {
         var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
         var source = (Array.isArray(items) ? items : []).filter(function (item) {
-            return matchesProductFilter(item) && (activeCategoryId ? item.categoryId === activeCategoryId : !item.categoryId);
+            return matchesProductFilter(item) && (!activeCategoryId || item.categoryId === activeCategoryId);
         });
         if (searchTerm) {
             var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });
@@ -572,7 +514,7 @@
                 element.dataset.signature = signature;
                 element.innerHTML =
                 (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
-                '<h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
+                '<h2 class="product-name">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
                 '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong class="location-value">' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
                 '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(productSecondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
@@ -1208,12 +1150,6 @@
     }, { passive: true });
     $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
     $('productsGrid').addEventListener('click', function (event) {
-        var locationButton = event.target.closest('[data-edit-product]');
-        if (locationButton) {
-            var locationItem = items.find(function (entry) { return entry.id === locationButton.dataset.editProduct; });
-            if (locationItem) openLocationEdit(locationItem);
-            return;
-        }
         var button = event.target.closest('[data-sell-item]');
         if (button && !button.disabled) {
             var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; });
@@ -1234,13 +1170,6 @@
             modal.hidden = false;
             return;
         }
-    });
-    $('productsGrid').addEventListener('keydown', function (event) {
-        var locationButton = event.target.closest('[data-edit-product]');
-        if (!locationButton || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        var locationItem = items.find(function (entry) { return entry.id === locationButton.dataset.editProduct; });
-        if (locationItem) openLocationEdit(locationItem);
     });
     $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'), warningButton = event.target.closest('[data-warning-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); if (warningButton) { var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; }); if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.'); } });
     $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') loadOlderSales(); });
