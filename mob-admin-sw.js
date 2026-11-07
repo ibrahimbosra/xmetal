@@ -1,9 +1,13 @@
-const CACHE_NAME = 'xmetal-mob-admin-v34';
+const CACHE_NAME = 'xmetal-mob-admin-v66';
 const APP_SHELL = [
     './mob-admin.html',
     './mob-admin-manifest.json',
-    './css/mob-admin.css?v=purchase-price-two-decimals-2',
-    './js/mob-admin.js?v=category-all-products-1',
+    './css/mob-admin.css?v=challenge-bridge-1',
+    './css/balance-verification.css?v=balance-currency-warning-1',
+    './css/xmetal-challenge.css?v=challenge-3',
+    './js/mob-admin.js?v=challenge-bridge-2',
+    './js/balance-verification.js?v=balance-result-notes-1',
+    './js/xmetal-challenge.js?v=challenge-8',
     './js/firebase-config.js',
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',

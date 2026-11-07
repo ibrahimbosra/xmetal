@@ -26,6 +26,7 @@
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobAdminCacheV1';
     var UI_STATE_KEY = CACHE_KEY + ':ui';
+    var employeeSearchHistoryRequest = 0;
     var pendingUiState = null;
     var uiStateRestored = false;
     var uiStateSaveTimer = null;
@@ -47,6 +48,13 @@
     var newCategoryProductSelection = new Set();
 
     var $ = function (id) { return document.getElementById(id); };
+    window.XMETALChallengeData = {
+        getProducts: function () { return items.slice(); },
+        getUserId: function () { return auth && auth.currentUser ? auth.currentUser.uid : ''; },
+        getDisplayPrice: function (primaryValue) { return productSecondary(primaryValue); },
+        getCurrencySymbol: function () { return currency.secondaryCurrencySymbol; }
+    };
+    $('productSearch').value = '';
     function applyMobileTheme(theme, persist) {
         currentTheme = theme === 'light' ? 'light' : 'dark';
         document.documentElement.dataset.theme = currentTheme;
@@ -1034,6 +1042,7 @@
             var panel = $(button.dataset.settingsTab);
             if (panel) panel.hidden = !active;
         });
+        if (tab.dataset.settingsTab === 'employeeSettingsPanel') loadEmployeeSearchHistory();
     }
 
     function activateCategoryTab(tab) {
@@ -1267,6 +1276,7 @@
     }
 
     restoreUserDisplayNameMapCache();
+    window.xmetalUserDisplayNameMap = userDisplayNameMap;
 
     function refreshUserDisplayNameMap() {
         if (userDisplayNameMapPromise) return userDisplayNameMapPromise;
@@ -1288,6 +1298,7 @@
             var merged = {};
             maps.forEach(function (map) { Object.assign(merged, map); });
             userDisplayNameMap = merged;
+            window.xmetalUserDisplayNameMap = merged;
             userDisplayNameMapFetchedAt = Date.now();
             try { localStorage.setItem(USER_DISPLAY_NAMES_CACHE_KEY, JSON.stringify({ map: merged, savedAt: userDisplayNameMapFetchedAt })); }
             catch (error) { console.warn('Unable to cache seller names.', error); }
@@ -1302,6 +1313,7 @@
         });
         return userDisplayNameMapPromise;
     }
+    window.xmetalRefreshUserDisplayNameMap = refreshUserDisplayNameMap;
 
     function getCurrentSellerInfo() {
         var currentUser = auth && auth.currentUser ? auth.currentUser : null;
@@ -1410,7 +1422,7 @@
     function captureUiState() {
         var values = {};
         document.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (field) {
-            if (field.type === 'password' || field.type === 'file' || field.closest('#loginForm')) return;
+            if (field.id === 'productSearch' || field.type === 'password' || field.type === 'file' || field.closest('#loginForm')) return;
             values[field.id] = { value: field.value, checked: field.checked };
         });
         var modals = {};
@@ -1431,8 +1443,6 @@
             values: values,
             modals: modals,
             locationEdit: locationEdit,
-            productFilter: productFilter,
-            activeProductCategoryId: activeProductCategoryId,
             inventorySort: inventorySort,
             scrollY: window.scrollY,
             selectedItemId: selectedItem && selectedItem.id || '',
@@ -1465,12 +1475,7 @@
             uiStateRestored = true;
             return true;
         }
-        productFilter = ['all', 'available', 'expired'].indexOf(state.productFilter) !== -1 ? state.productFilter : productFilter;
-        if (typeof state.activeProductCategoryId === 'string') activeProductCategoryId = state.activeProductCategoryId;
         if (typeof state.inventorySort === 'string') inventorySort = state.inventorySort;
-        if (state.values && typeof state.values === 'object' && typeof state.values.productSearch === 'string') {
-            $('productSearch').value = state.values.productSearch;
-        }
         renderProducts();
 
         var saleModalOpen = state.modals && state.modals.saleModal === false;
@@ -1494,7 +1499,7 @@
         if (state.values && typeof state.values === 'object') {
             Object.keys(state.values).forEach(function (id) {
                 var field = $(id), saved = state.values[id];
-                if (!field || !saved || field.closest('#loginForm') || field.type === 'password' || field.type === 'file') return;
+                if (!field || !saved || id === 'productSearch' || field.closest('#loginForm') || field.type === 'password' || field.type === 'file') return;
                 if (id === 'adminPurchasePrice' && state.locationEdit && state.locationEdit.mode === 'edit') {
                     var editModal = $('locationEditModal');
                     var editItem = items.find(function (entry) { return entry.id === state.locationEdit.itemId; });
@@ -1596,6 +1601,12 @@
         return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
     }
 
+    function productCategoryName(item) {
+        if (!item.categoryId) return 'فئة غير محددة';
+        var category = categories.find(function (entry) { return entry.id === item.categoryId; });
+        return category ? (category.name || 'فئة غير محددة') : (item.categoryName || 'فئة غير محددة');
+    }
+
     function renderCategoryFilters() {
         var nav = $('categoryFilters');
         if (!nav) return;
@@ -1648,7 +1659,7 @@
     function filterAndSortProducts(term) {
         var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
         var source = (Array.isArray(items) ? items : []).filter(function (item) {
-            return matchesProductFilter(item) && (!activeProductCategoryId || item.categoryId === activeProductCategoryId);
+            return matchesProductFilter(item) && (searchTerm || !activeProductCategoryId || item.categoryId === activeProductCategoryId);
         });
         if (searchTerm) {
             var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });
@@ -1708,7 +1719,7 @@
             }
         });
         visible.forEach(function (item, index) {
-            var stock = number(item.quantity) || 0, purchaseInSecondary = currency.defaultInputCurrency === 'secondary', purchaseSymbol = purchaseInSecondary ? currency.secondaryCurrencySymbol : '$', purchaseDisplay = purchaseInSecondary ? secondary(item.purchasePrice) : item.purchasePrice, signature = JSON.stringify([item.name, stock, item.purchasePrice, item.salePrice, mechanicPrice(item), currency.defaultInputCurrency, currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
+            var stock = number(item.quantity) || 0, categoryName = productCategoryName(item), purchaseInSecondary = currency.defaultInputCurrency === 'secondary', purchaseSymbol = purchaseInSecondary ? currency.secondaryCurrencySymbol : '$', purchaseDisplay = purchaseInSecondary ? secondary(item.purchasePrice) : item.purchasePrice, signature = JSON.stringify([item.name, categoryName, stock, item.purchasePrice, item.salePrice, mechanicPrice(item), currency.defaultInputCurrency, currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
             var element = productElements.get(item.id);
             if (!element) { element = document.createElement('article'); element.className = 'product-card mechanic-price-obscured purchase-price-obscured'; element.dataset.productId = item.id; productElements.set(item.id, element); }
             element.classList.toggle('expired-product', stock <= 0);
@@ -1724,7 +1735,7 @@
                 element.innerHTML =
                 '<span class="product-card-number" aria-hidden="true"></span>' +
                 (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<button class="product-thumb placeholder" type="button" data-image-replace="' + esc(item.id) + '" aria-label="إضافة صورة للمنتج"><span>XM</span></button>') +
-                '<h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
+                '<div class="product-title-group"><h2 class="product-name product-edit-trigger" role="button" tabindex="0" data-edit-product="' + esc(item.id) + '">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2><p class="product-category">' + esc(categoryName) + '</p></div>' +
                 '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span>(<button class="location-label location-edit-trigger" type="button" data-edit-location="' + esc(item.id) + '">مكان القطعة:</button> <strong class="location-value">' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
                 '<button class="price-line purchase-price" type="button" aria-label="إظهار سعر الشراء" aria-pressed="false"><span>شراء</span><strong class="sensitive-price">' + price(purchaseDisplay) + ' ' + esc(purchaseSymbol) + '</strong></button>' +
@@ -1992,6 +2003,9 @@
             dayStats[key].count += 1;
             dayStats[key].total += secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0));
         });
+        var todayTotal = dayStats[dayKey(Date.now())] ? dayStats[dayKey(Date.now())].total : 0;
+        window.xmetalDailySalesTotal = todayTotal;
+        window.dispatchEvent(new CustomEvent('xmetal:daily-sales-total', { detail: { total: todayTotal } }));
         var shown = ordered, previousDay = null, dayNumber = 0, html = '';
         shown.forEach(function (sale) {
             var currentDay = dayKey(sale.timestamp);
@@ -2317,6 +2331,91 @@
     function updateSearchClearButton() {
         $('clearProductSearch').hidden = !$('productSearch').value;
     }
+
+    function renderEmployeeSearchHistory(records) {
+        var container = $('employeeSearchHistoryEntries');
+        container.replaceChildren();
+        if (!records.length) {
+            var empty = document.createElement('p');
+            empty.className = 'search-history-empty';
+            empty.textContent = 'لا توجد عمليات بحث خلال آخر يومين';
+            container.appendChild(empty);
+            return;
+        }
+        records.forEach(function (record) {
+            var row = document.createElement('article');
+            row.className = 'employee-search-history-entry';
+            var details = document.createElement('div');
+            details.className = 'employee-search-history-details';
+            var query = document.createElement('strong');
+            query.textContent = record.query || '';
+            var employee = document.createElement('span');
+            employee.textContent = [record.employeeName, record.employeeEmail].filter(Boolean).join(' · ') || 'موظف غير محدد';
+            var time = document.createElement('time');
+            var occurredAt = record.createdAt.toDate();
+            time.dateTime = occurredAt.toISOString();
+            time.textContent = new Intl.DateTimeFormat('ar-SA-u-nu-latn', { dateStyle: 'medium', timeStyle: 'medium' }).format(occurredAt);
+            details.append(query, employee, time);
+            var remove = document.createElement('button');
+            remove.className = 'search-history-delete';
+            remove.type = 'button';
+            remove.dataset.searchHistoryDelete = record.id;
+            remove.setAttribute('aria-label', 'حذف عملية البحث');
+            remove.textContent = '×';
+            row.append(details, remove);
+            container.appendChild(row);
+        });
+    }
+
+    async function deleteExpiredEmployeeSearchHistory(cutoff) {
+        var expired = await db.collection('employeeSearchHistory')
+            .where('createdAt', '<', firebase.firestore.Timestamp.fromDate(cutoff))
+            .get();
+        for (var index = 0; index < expired.docs.length; index += 500) {
+            var batch = db.batch();
+            expired.docs.slice(index, index + 500).forEach(function (doc) { batch.delete(doc.ref); });
+            await batch.commit();
+        }
+    }
+
+    async function loadEmployeeSearchHistory() {
+        var requestId = ++employeeSearchHistoryRequest;
+        $('employeeSearchHistoryStatus').textContent = 'جارٍ تحميل السجل...';
+        try {
+            var cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+            await deleteExpiredEmployeeSearchHistory(cutoff);
+            if (requestId !== employeeSearchHistoryRequest) return;
+            var snapshot = await db.collection('employeeSearchHistory')
+                .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(cutoff))
+                .orderBy('createdAt', 'desc')
+                .get();
+            if (requestId !== employeeSearchHistoryRequest) return;
+            var records = snapshot.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            renderEmployeeSearchHistory(records);
+            $('employeeSearchHistoryStatus').textContent = '';
+        } catch (error) {
+            if (requestId !== employeeSearchHistoryRequest) return;
+            console.error('Unable to load employee search history:', error);
+            $('employeeSearchHistoryStatus').textContent = 'تعذر تحميل سجل البحث';
+        }
+    }
+
+    $('employeeSearchHistoryEntries').addEventListener('click', async function (event) {
+        var button = event.target.closest('[data-search-history-delete]');
+        if (!button) return;
+        button.disabled = true;
+        try {
+            await db.collection('employeeSearchHistory').doc(button.dataset.searchHistoryDelete).delete();
+            await loadEmployeeSearchHistory();
+        } catch (error) {
+            console.error('Unable to delete employee search history entry:', error);
+            button.disabled = false;
+            $('employeeSearchHistoryStatus').textContent = 'تعذر حذف عملية البحث';
+        }
+    });
+    $('refreshEmployeeSearchHistory').addEventListener('click', loadEmployeeSearchHistory);
+    try { localStorage.removeItem('xmetalMobAdminSearchHistoryV1'); }
+    catch (error) { console.warn('Unable to clear old local mobile admin search history.', error); }
 
     $('clearProductSearch').addEventListener('click', function () {
         $('productSearch').value = '';

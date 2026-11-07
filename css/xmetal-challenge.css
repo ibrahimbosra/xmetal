@@ -1,0 +1,58 @@
+.challenge-open { width: 46px; height: 46px; min-height: 46px; align-self: center; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: #8251d4; font-size: 1.05rem; box-shadow: 0 3px 10px rgba(22,42,70,.05); }
+.challenge-open:active { transform: scale(.97); }
+.xmetal-challenge-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; align-items: end; padding: 10px; background: rgba(15,23,42,.62); }
+.xmetal-challenge-backdrop[hidden] { display: none; }
+.xmetal-challenge-modal { position: relative; width: min(100%, 560px); max-height: 95dvh; margin: auto; overflow: auto; padding: 18px 15px 16px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--text); box-shadow: 0 20px 55px rgba(0,0,0,.28); overscroll-behavior: contain; }
+.xmetal-challenge-close { position: absolute; top: 10px; left: 10px; z-index: 1; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.4rem; }
+.xmetal-challenge-header { display: flex; align-items: center; gap: 11px; margin: 0 40px 13px 0; }
+.xmetal-challenge-header .eyebrow { margin: 0 0 2px; color: var(--muted); font-size: .68rem; }
+.xmetal-challenge-header h2 { margin: 0; font-size: 1.12rem; }
+.xmetal-challenge-mark { display: grid; flex: 0 0 46px; width: 46px; height: 46px; place-items: center; border-radius: 14px; background: rgba(130,81,212,.12); color: #8251d4; font-size: 1.2rem; }
+.xmetal-challenge-screen[hidden] { display: none; }
+.xmetal-challenge-intro { margin: 0 0 10px; color: var(--muted); text-align: center; font-size: .78rem; }
+.xmetal-challenge-rules { margin: -4px 0 10px; color: var(--muted); text-align: center; font-size: .68rem; }
+.xmetal-challenge-best { margin-bottom: 10px; padding: 9px; border: 1px solid var(--line); border-radius: 11px; background: var(--bg); color: var(--muted); text-align: center; font-size: .75rem; }
+.xmetal-challenge-modes { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.xmetal-challenge-modes button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); text-align: right; }
+.xmetal-challenge-modes button:active, .xmetal-challenge-option:active { transform: scale(.99); }
+.xmetal-challenge-modes strong { font-size: .82rem; }
+.xmetal-challenge-modes span { color: var(--muted); font-size: .7rem; }
+.xmetal-challenge-notice { min-height: 18px; margin: 9px 2px 0; color: var(--danger); text-align: center; font-size: .74rem; }
+.xmetal-challenge-stats { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.xmetal-challenge-stats strong { color: #8251d4; font-size: .95rem; }
+.xmetal-challenge-stats span { color: var(--muted); font-size: .73rem; }
+.xmetal-challenge-progress { height: 7px; margin: 7px 0 11px; overflow: hidden; border-radius: 99px; background: var(--bg); }
+.xmetal-challenge-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#8251d4,#4d9dff); transition: width .25s ease; }
+.xmetal-challenge-type { margin: 0 0 4px; color: #8251d4; font-size: .68rem; font-weight: 800; }
+.xmetal-challenge-question { margin: 0 0 11px; font-size: .95rem; line-height: 1.7; }
+.xmetal-challenge-prompt-image { display: block; width: min(100%, 180px); height: 140px; margin: 0 auto 10px; object-fit: contain; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.xmetal-challenge-prompt-image[hidden] { display: none; }
+.xmetal-challenge-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.xmetal-challenge-option { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--bg); color: var(--text); font: inherit; font-size: .84rem; font-weight: 800; transition: transform .12s, background-color .15s, border-color .15s; }
+.xmetal-challenge-option-image { min-height: 102px; padding: 6px; }
+.xmetal-challenge-option img { width: 80px; height: 78px; object-fit: contain; border-radius: 7px; }
+.xmetal-challenge-option.is-correct { border-color: var(--green); background: rgba(21,148,71,.12); color: var(--green); }
+.xmetal-challenge-option.is-wrong { border-color: var(--danger); background: rgba(216,58,75,.12); color: var(--danger); }
+.xmetal-challenge-option:disabled { cursor: default; }
+.xmetal-challenge-feedback { min-height: 20px; margin: 9px 2px 2px; color: var(--text); text-align: center; font-size: .78rem; font-weight: 700; }
+.xmetal-challenge-controls { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 6px; }
+.xmetal-challenge-primary, .xmetal-challenge-stop { min-height: 43px; padding: 8px 12px; border: 0; border-radius: 11px; font: inherit; font-size: .8rem; font-weight: 800; }
+.xmetal-challenge-primary { background: #7040c0; color: #fff; }
+.xmetal-challenge-stop { border: 1px solid var(--line); background: var(--bg); color: var(--muted); }
+.xmetal-challenge-result-title { margin: 0 0 12px; color: #8251d4; text-align: center; font-size: 1.12rem; }
+.xmetal-challenge-result-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+.xmetal-challenge-result-stat { display: grid; gap: 2px; padding: 9px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); text-align: center; }
+.xmetal-challenge-result-stat strong { font-size: .92rem; }
+.xmetal-challenge-result-stat span { color: var(--muted); font-size: .68rem; }
+.xmetal-challenge-result-message { margin: 11px 0; color: var(--muted); text-align: center; font-size: .8rem; }
+@media (min-width: 480px) {
+    .xmetal-challenge-modal { padding: 20px; }
+    .xmetal-challenge-modes { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .xmetal-challenge-modes button { min-height: 78px; flex-direction: column; justify-content: center; text-align: center; }
+    .xmetal-challenge-options.has-images { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .xmetal-challenge-option img { width: 100%; height: 92px; }
+    .xmetal-challenge-controls { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 380px) {
+    .challenge-open { width: 42px; height: 44px; min-height: 44px; }
+}

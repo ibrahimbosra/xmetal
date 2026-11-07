@@ -1,9 +1,13 @@
-const CACHE_NAME = 'xmetal-mobile-sales-v13';
+const CACHE_NAME = 'xmetal-mobile-sales-v46';
 const APP_SHELL = [
     './mobile-sales.html',
     './manifest.json',
-    './css/mobile-sales.css?v=employee-no-product-edit-1',
-    './js/mobile-sales.js?v=employee-no-product-edit-1',
+    './css/mobile-sales.css?v=challenge-bridge-1',
+    './css/balance-verification.css?v=balance-currency-warning-1',
+    './css/xmetal-challenge.css?v=challenge-3',
+    './js/mobile-sales.js?v=challenge-bridge-2',
+    './js/balance-verification.js?v=balance-result-notes-1',
+    './js/xmetal-challenge.js?v=challenge-8',
     './js/firebase-config.js',
     './fonts/Cairo-Regular.woff2',
     './icons/icon-192.svg',

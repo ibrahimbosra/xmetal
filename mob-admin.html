@@ -20,9 +20,11 @@
     <link rel="apple-touch-icon" href="icons/icon-192.svg">
     <title>X METAL - لوحة الإدارة</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/mob-admin.css?v=purchase-price-two-decimals-2">
+    <link rel="stylesheet" href="css/mob-admin.css?v=challenge-bridge-1">
+    <link rel="stylesheet" href="css/balance-verification.css?v=balance-currency-warning-1">
+    <link rel="stylesheet" href="css/xmetal-challenge.css?v=challenge-3">
 </head>
-<body>
+<body class="mob-admin-page">
     <div class="splash-screen" id="splashScreen" aria-label="جاري تشغيل نقطة البيع">
         <div class="splash-mark">XM</div>
         <strong>نقطة البيع</strong>
@@ -52,11 +54,13 @@
         </header>
 
         <section class="toolbar" aria-label="البحث في المنتجات">
-            <label class="search-box">
+            <div class="search-box">
                 <span class="search-icon" aria-hidden="true">⌕</span>
-                <input id="productSearch" type="text" inputmode="search" enterkeyhint="search" placeholder="ابحث عن منتج" autocomplete="off">
+                <input id="productSearch" type="text" inputmode="search" enterkeyhint="search" placeholder="ابحث عن منتج" aria-label="ابحث عن منتج" autocomplete="off">
                 <button class="search-clear-button" id="clearProductSearch" type="button" aria-label="مسح البحث" hidden>×</button>
-            </label>
+            </div>
+            <button class="balance-verification-open toolbar-tool-button" id="openBalanceVerification" type="button" aria-label="حاسبة التحقق من صحة الرصيد" title="حاسبة التحقق من صحة الرصيد"><i class="fas fa-calculator" aria-hidden="true"></i></button>
+            <button class="challenge-open toolbar-tool-button" id="openXmetalChallenge" type="button" aria-label="تحدي XMETAL" title="تحدي XMETAL"><i class="fas fa-gamepad" aria-hidden="true"></i></button>
             <button class="install-button" id="installButton" type="button" aria-label="تثبيت التطبيق" title="تثبيت التطبيق"><i class="fas fa-download" aria-hidden="true"></i></button>
             <button class="theme-toggle-button" id="settingsButton" type="button" aria-label="الإعدادات" title="الإعدادات"><i class="fas fa-cog" aria-hidden="true"></i></button>
             <button class="add-product-button" id="addProductButton" type="button" aria-label="إنشاء منتج جديد">+</button>
@@ -130,6 +134,89 @@
         </section>
     </div>
 
+    <div class="balance-verification-backdrop" id="balanceVerificationModal" hidden>
+        <section class="balance-verification-modal" role="dialog" aria-modal="true" aria-labelledby="balanceVerificationTitle">
+            <button class="balance-verification-close" id="closeBalanceVerification" type="button" aria-label="إغلاق">×</button>
+            <p class="eyebrow">حاسبة التحقق من صحة الرصيد</p>
+            <h2 class="balance-verification-warning" id="balanceVerificationTitle">يرجى عدم إضافة فواصل للمبالغ، يتم إدخالها بشكل تلقائي<br>يرجى إدخال الأرقام وفق العملة السورية القديمة</h2>
+            <form id="balanceVerificationForm" novalidate>
+                <div class="balance-verification-fields">
+                    <label>رصيد الدرج قبل بدء البيع<span class="balance-verification-input-wrap"><input type="text" inputmode="decimal" data-balance-field="openingBalance" value="50,000" autocomplete="off"><button class="search-clear-button balance-verification-clear-button" type="button" data-clear-balance-field="openingBalance" aria-label="مسح قيمة رصيد الدرج قبل بدء البيع">×</button></span></label>
+                    <label>إجمالي المبيعات الكاملة<span class="balance-verification-input-wrap"><input type="text" inputmode="decimal" data-balance-field="grossSales" value="0" autocomplete="off"><button class="search-clear-button balance-verification-clear-button" type="button" data-clear-balance-field="grossSales" aria-label="مسح قيمة إجمالي المبيعات الكاملة">×</button></span></label>
+                    <label>إجمالي السدادات<span class="balance-verification-input-wrap"><input type="text" inputmode="decimal" data-balance-field="debtPayments" value="0" autocomplete="off"><button class="search-clear-button balance-verification-clear-button" type="button" data-clear-balance-field="debtPayments" aria-label="مسح قيمة إجمالي السدادات">×</button></span></label>
+                    <label>إجمالي الديون<span class="balance-verification-input-wrap"><input type="text" inputmode="decimal" data-balance-field="debts" value="0" autocomplete="off"><button class="search-clear-button balance-verification-clear-button" type="button" data-clear-balance-field="debts" aria-label="مسح قيمة إجمالي الديون">×</button></span></label>
+                    <label>إجمالي السحوبات<span class="balance-verification-input-wrap"><input type="text" inputmode="decimal" data-balance-field="withdrawals" value="0" autocomplete="off"><button class="search-clear-button balance-verification-clear-button" type="button" data-clear-balance-field="withdrawals" aria-label="مسح قيمة إجمالي السحوبات">×</button></span></label>
+                    <label>المبلغ الموجود في الدرج الآن<span class="balance-verification-input-wrap"><input type="text" inputmode="decimal" data-balance-field="actualBalance" value="50,000" autocomplete="off"><button class="search-clear-button balance-verification-clear-button" type="button" data-clear-balance-field="actualBalance" aria-label="مسح قيمة المبلغ الموجود في الدرج الآن">×</button></span></label>
+                </div>
+
+                <section class="balance-verification-result is-incomplete" id="balanceVerificationResult" aria-live="polite">
+                    <strong id="balanceVerificationStatus">أدخل القيم الست لبدء التحقق</strong>
+                    <div class="balance-verification-totals" id="balanceVerificationTotals" hidden></div>
+                    <div class="balance-verification-equation" id="balanceVerificationEquation" hidden></div>
+                    <p id="balanceVerificationMessage">تُحسب النتيجة تلقائياً عند إدخال جميع القيم.</p>
+                    <p class="balance-verification-note" id="balanceVerificationNote" hidden></p>
+                </section>
+                <p class="balance-verification-feedback" id="balanceVerificationFeedback" role="status" aria-live="polite"></p>
+                <button class="balance-verification-save" id="saveBalanceVerification" type="submit" disabled>حفظ التحقق</button>
+            </form>
+            <section class="balance-verification-history" aria-labelledby="balanceVerificationHistoryTitle">
+                <h3 id="balanceVerificationHistoryTitle">سجل التحقق من الرصيد</h3>
+                <div class="balance-verification-history-list" id="balanceVerificationHistoryList" aria-live="polite"></div>
+                <button class="balance-verification-more" id="loadMoreBalanceVerifications" type="button" hidden>عرض 3 عمليات أخرى</button>
+            </section>
+            <section class="balance-verification-detail" id="balanceVerificationDetail" role="dialog" aria-modal="true" aria-labelledby="balanceVerificationDetailTitle" hidden>
+                <div class="balance-verification-detail-dialog">
+                    <button class="balance-verification-close" id="backToBalanceVerificationHistory" type="button" aria-label="إغلاق تفاصيل العملية">×</button>
+                    <h2 id="balanceVerificationDetailTitle">تفاصيل التحقق</h2>
+                    <div id="balanceVerificationDetailContent"></div>
+                </div>
+            </section>
+        </section>
+    </div>
+
+    <div class="xmetal-challenge-backdrop" id="xmetalChallengeModal" hidden>
+        <section class="xmetal-challenge-modal" role="dialog" aria-modal="true" aria-labelledby="xmetalChallengeTitle">
+            <button class="xmetal-challenge-close" id="closeXmetalChallenge" type="button" aria-label="إغلاق اللعبة">×</button>
+            <header class="xmetal-challenge-header">
+                <span class="xmetal-challenge-mark"><i class="fas fa-gamepad" aria-hidden="true"></i></span>
+                <div><p class="eyebrow">تدريب ممتع على المنتجات</p><h2 id="xmetalChallengeTitle">تحدي XMETAL</h2></div>
+            </header>
+            <section id="xmetalChallengeMenu" class="xmetal-challenge-screen">
+                <p class="xmetal-challenge-intro">اختبر معرفتك بأسماء المنتجات وصورها وأسعارها.</p>
+                <p class="xmetal-challenge-rules">الإجابة الصحيحة +10 نقاط، والخاطئة -5 نقاط. مكافآت خاصة للتتابع!</p>
+                <div class="xmetal-challenge-best" id="xmetalChallengeBest"></div>
+                <div class="xmetal-challenge-modes">
+                    <button type="button" data-challenge-mode="quick"><strong>جولة سريعة</strong><span>10 أسئلة</span></button>
+                    <button type="button" data-challenge-mode="knowledge"><strong>تحدي المعرفة</strong><span>25 سؤالاً</span></button>
+                    <button type="button" data-challenge-mode="free"><strong>اللعب الحر</strong><span>حتى تقرر التوقف</span></button>
+                </div>
+                <p class="xmetal-challenge-notice" id="xmetalChallengeNotice" role="status" aria-live="polite"></p>
+            </section>
+            <section id="xmetalChallengePlay" class="xmetal-challenge-screen" hidden>
+                <div class="xmetal-challenge-stats"><strong id="xmetalChallengeScore">0 نقطة</strong><span id="xmetalChallengeProgress"></span></div>
+                <div class="xmetal-challenge-progress"><span id="xmetalChallengeProgressBar"></span></div>
+                <p class="xmetal-challenge-type" id="xmetalChallengeType"></p>
+                <h3 class="xmetal-challenge-question" id="xmetalChallengeQuestion"></h3>
+                <img class="xmetal-challenge-prompt-image" id="xmetalChallengePromptImage" alt="" hidden>
+                <div class="xmetal-challenge-options" id="xmetalChallengeOptions"></div>
+                <p class="xmetal-challenge-feedback" id="xmetalChallengeFeedback" role="status" aria-live="polite"></p>
+                <div class="xmetal-challenge-controls">
+                    <button class="xmetal-challenge-primary" id="xmetalChallengeNext" type="button" hidden>السؤال التالي</button>
+                    <button class="xmetal-challenge-stop" id="xmetalChallengeStop" type="button">إنهاء الجولة</button>
+                </div>
+            </section>
+            <section id="xmetalChallengeResults" class="xmetal-challenge-screen" hidden>
+                <h3 class="xmetal-challenge-result-title" id="xmetalChallengeResultTitle"></h3>
+                <div class="xmetal-challenge-result-grid" id="xmetalChallengeResultStats"></div>
+                <p class="xmetal-challenge-result-message" id="xmetalChallengeResultMessage"></p>
+                <div class="xmetal-challenge-controls">
+                    <button class="xmetal-challenge-primary" id="xmetalChallengeReplay" type="button">العب مرة أخرى</button>
+                    <button class="xmetal-challenge-stop" id="xmetalChallengeReturn" type="button">العودة إلى الصفحة</button>
+                </div>
+            </section>
+        </section>
+    </div>
+
     <div class="modal-backdrop settings-backdrop" id="settingsModal" hidden>
         <section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
             <button class="close-button" data-close-modal="settingsModal" type="button" aria-label="إغلاق">×</button>
@@ -138,6 +225,7 @@
             <div class="settings-tabs" role="tablist" aria-label="أقسام الإعدادات">
                 <button class="settings-tab active" id="categorySettingsTab" type="button" role="tab" aria-selected="true" aria-controls="categorySettingsPanel" data-settings-tab="categorySettingsPanel"><i class="fas fa-tags" aria-hidden="true"></i> الفئات</button>
                 <button class="settings-tab" id="displaySettingsTab" type="button" role="tab" aria-selected="false" aria-controls="displaySettingsPanel" data-settings-tab="displaySettingsPanel" tabindex="-1"><i class="fas fa-display" aria-hidden="true"></i> العرض</button>
+                <button class="settings-tab" id="employeeSettingsTab" type="button" role="tab" aria-selected="false" aria-controls="employeeSettingsPanel" data-settings-tab="employeeSettingsPanel" tabindex="-1"><i class="fas fa-user" aria-hidden="true"></i> الموظف</button>
             </div>
             <section class="settings-section" id="categorySettingsPanel" role="tabpanel" aria-labelledby="categorySettingsTab">
                 <div class="settings-tabs category-settings-tabs" role="tablist" aria-label="أقسام الفئات">
@@ -168,6 +256,19 @@
                     <div><strong>المظهر</strong><span>تغيير الوضع الليلي أو النهاري</span></div>
                     <button class="theme-toggle-button" id="themeToggleButton" type="button" aria-label="التبديل إلى الوضع النهاري" title="التبديل إلى الوضع النهاري" aria-pressed="true"><i class="fas fa-sun" aria-hidden="true"></i></button>
                 </div>
+            </section>
+            <section class="settings-section" id="employeeSettingsPanel" role="tabpanel" aria-labelledby="employeeSettingsTab" hidden>
+                <div class="settings-tabs employee-settings-tabs" role="tablist" aria-label="إعدادات الموظف">
+                    <button class="settings-tab active" id="employeeSearchHistoryTab" type="button" role="tab" aria-selected="true" aria-controls="employeeSearchHistoryPanel" data-employee-tab="employeeSearchHistoryPanel"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> سجل البحث</button>
+                </div>
+                <section class="employee-settings-panel" id="employeeSearchHistoryPanel" role="tabpanel" aria-labelledby="employeeSearchHistoryTab">
+                    <div class="settings-section-heading">
+                        <div><h3>سجل بحث الموظفين</h3><span>عمليات البحث خلال آخر 48 ساعة</span></div>
+                        <button class="primary-button settings-add-category" id="refreshEmployeeSearchHistory" type="button">تحديث</button>
+                    </div>
+                    <p class="form-error" id="employeeSearchHistoryStatus" role="status" aria-live="polite"></p>
+                    <div class="employee-search-history-entries" id="employeeSearchHistoryEntries" aria-live="polite"></div>
+                </section>
             </section>
         </section>
     </div>
@@ -203,6 +304,8 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/mob-admin-helpers.js"></script>
     <script src="js/pricingHelpers.js?v=20260929"></script>
-    <script src="js/mob-admin.js?v=category-all-products-1"></script>
+    <script src="js/mob-admin.js?v=challenge-bridge-2"></script>
+    <script src="js/balance-verification.js?v=balance-result-notes-1"></script>
+    <script src="js/xmetal-challenge.js?v=challenge-8"></script>
 </body>
 </html>

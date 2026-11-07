@@ -1,0 +1,82 @@
+.balance-verification-open { width: 46px; height: 46px; min-height: 46px; align-self: center; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--blue); font-size: 1.05rem; box-shadow: 0 3px 10px rgba(22,42,70,.05); }
+.balance-verification-open:active { transform: scale(.97); }
+.balance-verification-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; align-items: end; padding: 10px; background: rgba(15,23,42,.56); }
+.balance-verification-backdrop[hidden] { display: none; }
+.balance-verification-modal { --balance-excess-text: #b56b00; --balance-increase-bg: rgba(21,148,71,.08); --balance-increase-border: rgba(21,148,71,.45); --balance-decrease-bg: rgba(216,58,75,.07); --balance-decrease-border: rgba(216,58,75,.4); position: relative; width: min(100%, 560px); max-height: 95dvh; margin: auto; overflow: auto; padding: 25px 16px 18px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--text); box-shadow: 0 20px 55px rgba(0,0,0,.25); overscroll-behavior: contain; }
+.balance-verification-modal > .eyebrow { margin-bottom: 4px; color: var(--blue); font-size: .73rem; font-weight: 800; }
+.balance-verification-modal h2 { max-width: calc(100% - 34px); margin: 0 0 14px; font-size: 1.02rem; line-height: 1.6; }
+.balance-verification-modal h2.balance-verification-warning { max-width: calc(100% - 24px); margin-bottom: 12px; color: var(--danger); font-size: .82rem; line-height: 1.7; }
+.balance-verification-close { position: absolute; top: 10px; left: 10px; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.4rem; line-height: 1; }
+.balance-verification-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.balance-verification-fields label { display: grid; gap: 4px; margin: 0; color: var(--text); font-size: .76rem; font-weight: 700; }
+.balance-verification-input-wrap { position: relative; display: block; min-width: 0; }
+.balance-verification-fields input { min-width: 0; min-height: 48px; padding: 8px 10px 8px 56px; border: 1px solid var(--line); border-radius: 13px; background: var(--bg); color: var(--text); font-size: .9rem; direction: ltr; text-align: right; }
+.balance-verification-input-wrap .balance-verification-clear-button { top: 0; left: 0; width: 48px; height: 48px; min-height: 48px; border-radius: 13px 0 0 13px; }
+.balance-verification-result { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); text-align: center; }
+.balance-verification-result > strong { display: block; font-size: .98rem; }
+.balance-verification-result > p { margin: 5px 0 0; color: var(--muted); font-size: .76rem; }
+.balance-verification-result > .balance-verification-note { margin-top: 3px; font-size: .7rem; }
+.balance-verification-note[hidden] { display: none; }
+.balance-verification-result.is-incomplete { color: var(--muted); }
+.balance-verification-result.is-invalid, .balance-verification-result.is-short { border-color: rgba(216,58,75,.35); background: rgba(216,58,75,.07); color: var(--danger); }
+.balance-verification-result.is-correct { border-color: rgba(21,148,71,.35); background: rgba(21,148,71,.08); color: var(--green); }
+.balance-verification-result.is-excess { border-color: rgba(216,137,24,.38); background: rgba(216,137,24,.1); color: var(--balance-excess-text); }
+.balance-verification-totals { display: grid; gap: 3px; margin-top: 7px; color: var(--text); font-size: .78rem; font-weight: 700; }
+.balance-verification-totals[hidden] { display: none; }
+.balance-verification-equation { max-width: 100%; margin-top: 5px; overflow-x: auto; color: var(--muted); font-size: .64rem; font-weight: 500; line-height: 1.5; direction: rtl; scrollbar-width: thin; }
+.balance-verification-equation-table { width: 100%; min-width: 450px; table-layout: fixed; border-collapse: collapse; direction: rtl; text-align: center; }
+.balance-verification-equation-table th, .balance-verification-equation-table td { padding: 2px 1px; white-space: nowrap; }
+.balance-verification-equation-table th.balance-verification-equation-value-cell { border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; font-weight: 600; }
+.balance-verification-equation-table td.balance-verification-equation-value-cell { border: 1px solid var(--line); border-top: 0; border-radius: 0 0 6px 6px; }
+.balance-verification-equation-table .balance-verification-equation-value-cell.is-increase { border-color: var(--balance-increase-border); background: var(--balance-increase-bg); color: var(--green); }
+.balance-verification-equation-table .balance-verification-equation-value-cell.is-decrease { border-color: var(--balance-decrease-border); background: var(--balance-decrease-bg); color: var(--danger); }
+.balance-verification-equation-value-cell { width: 12%; }
+.balance-verification-equation-operator-cell { width: 5.6%; padding-inline: 0 !important; color: var(--text); font-size: .78rem; font-weight: 800; text-align: center; vertical-align: middle; }
+.balance-verification-equation-operator-cell.is-increase { color: var(--green); }
+.balance-verification-equation-operator-cell.is-decrease { color: var(--danger); }
+.balance-verification-feedback { min-height: 18px; margin: 5px 2px 0; color: var(--danger); font-size: .74rem; }
+.balance-verification-save, .balance-verification-more { width: 100%; min-height: 43px; padding: 8px 12px; border: 0; border-radius: 11px; background: var(--blue); color: #fff; font: inherit; font-size: .82rem; font-weight: 800; }
+.balance-verification-save:disabled, .balance-verification-more:disabled { opacity: .55; cursor: not-allowed; }
+.balance-verification-history { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--line); }
+.balance-verification-history h3 { margin: 0 0 9px; font-size: .9rem; }
+.balance-verification-history-list { display: grid; gap: 7px; }
+.balance-verification-history-item { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); text-align: right; }
+.balance-verification-history-item:active { transform: scale(.99); }
+.balance-verification-history-item.is-correct { border-right: 4px solid var(--green); }
+.balance-verification-history-item.is-short { border-right: 4px solid var(--danger); }
+.balance-verification-history-item.is-excess { border-right: 4px solid #d88918; }
+.balance-verification-history-copy { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.balance-verification-history-copy strong { overflow: hidden; font-size: .77rem; text-overflow: ellipsis; white-space: nowrap; }
+.balance-verification-history-copy span { color: var(--muted); font-size: .68rem; }
+.balance-verification-status { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; font-size: .65rem; font-weight: 800; }
+.balance-verification-status.is-correct { background: rgba(21,148,71,.12); color: var(--green); }
+.balance-verification-status.is-short { background: rgba(216,58,75,.12); color: var(--danger); }
+.balance-verification-status.is-excess { background: rgba(216,137,24,.15); color: var(--balance-excess-text); }
+.balance-verification-history-empty { margin: 0; padding: 10px 4px; color: var(--muted); text-align: center; font-size: .76rem; }
+.balance-verification-more { margin-top: 8px; background: var(--blue-bg); color: var(--blue); }
+.balance-verification-admin-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.balance-verification-admin-actions button { min-height: 40px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: .78rem; font-weight: 800; }
+.balance-verification-edit { background: var(--blue); color: #fff; }
+.balance-verification-delete { background: rgba(216,58,75,.1); color: var(--danger); }
+.balance-verification-cancel-edit { background: var(--bg); color: var(--text); }
+.balance-verification-edit-form { margin-top: 8px; }
+.balance-verification-admin-notice { margin: 8px 0 0; color: var(--muted); font-size: .75rem; }
+.balance-verification-detail { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 14px; background: rgba(15,23,42,.66); }
+.balance-verification-detail-dialog { position: relative; width: min(100%, 520px); max-height: min(88dvh, 760px); overflow: auto; padding: 24px 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--text); box-shadow: 0 18px 48px rgba(0,0,0,.32); overscroll-behavior: contain; }
+.balance-verification-detail-dialog > h2 { margin: 0 38px 12px 0; font-size: .95rem; }
+.balance-verification-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: .75rem; }
+.balance-verification-detail-grid dt { color: var(--muted); }
+.balance-verification-detail-grid dd { margin: 0; font-weight: 800; direction: ltr; text-align: left; }
+.balance-verification-detail-result { margin-top: 9px; }
+.balance-verification-detail-meta { display: grid; gap: 3px; margin-top: 8px; color: var(--muted); font-size: .72rem; }
+.balance-verification-detail-loading { margin: 0; color: var(--muted); font-size: .78rem; }
+:root[data-theme="dark"] .balance-verification-modal { --balance-excess-text: #fbbf24; --balance-increase-bg: rgba(72,207,130,.1); --balance-increase-border: rgba(72,207,130,.5); --balance-decrease-bg: rgba(255,125,137,.09); --balance-decrease-border: rgba(255,125,137,.45); }
+@media (min-width: 480px) {
+    .balance-verification-modal { padding-inline: 20px; }
+    .balance-verification-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 12px; }
+}
+@media (max-width: 380px) {
+    .balance-verification-open { width: 42px; height: 44px; min-height: 44px; }
+    .balance-verification-backdrop { padding: 7px; }
+    .balance-verification-modal { padding: 24px 12px 14px; }
+}

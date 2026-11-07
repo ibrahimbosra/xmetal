@@ -24,6 +24,10 @@
     var productElements = new Map();
     var CACHE_KEY = 'xmetalMobileSalesCacheV1';
     var UI_STATE_KEY = CACHE_KEY + ':ui';
+    var previousSearchValue = '';
+    var searchDraftValue = '';
+    var searchDraftSaved = false;
+    var searchSaveTimer = null;
     var pendingUiState = null;
     var uiStateRestored = false;
     var uiStateSaveTimer = null;
@@ -42,6 +46,13 @@
     var helpers = window.XMetalMobileSalesHelpers || {};
 
     var $ = function (id) { return document.getElementById(id); };
+    window.XMETALChallengeData = {
+        getProducts: function () { return items.slice(); },
+        getUserId: function () { return auth && auth.currentUser ? auth.currentUser.uid : ''; },
+        getDisplayPrice: function (primaryValue) { return productSecondary(primaryValue); },
+        getCurrencySymbol: function () { return currency.secondaryCurrencySymbol; }
+    };
+    $('productSearch').value = '';
     var esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
     function highlightMatches(value, term) {
         var text = String(value == null ? '' : value), searchTerm = String(term || '').trim();
@@ -134,6 +145,7 @@
     }
 
     restoreUserDisplayNameMapCache();
+    window.xmetalUserDisplayNameMap = userDisplayNameMap;
 
     function refreshUserDisplayNameMap() {
         if (userDisplayNameMapPromise) return userDisplayNameMapPromise;
@@ -155,6 +167,7 @@
             var merged = {};
             maps.forEach(function (map) { Object.assign(merged, map); });
             userDisplayNameMap = merged;
+            window.xmetalUserDisplayNameMap = merged;
             userDisplayNameMapFetchedAt = Date.now();
             try { localStorage.setItem(USER_DISPLAY_NAMES_CACHE_KEY, JSON.stringify({ map: merged, savedAt: userDisplayNameMapFetchedAt })); }
             catch (error) { console.warn('Unable to cache seller names.', error); }
@@ -169,6 +182,7 @@
         });
         return userDisplayNameMapPromise;
     }
+    window.xmetalRefreshUserDisplayNameMap = refreshUserDisplayNameMap;
 
     function getCurrentSellerInfo() {
         var currentUser = auth && auth.currentUser ? auth.currentUser : null;
@@ -277,7 +291,7 @@
     function captureUiState() {
         var values = {};
         document.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (field) {
-            if (field.type === 'password' || field.type === 'file' || field.closest('#loginForm')) return;
+            if (field.id === 'productSearch' || field.type === 'password' || field.type === 'file' || field.closest('#loginForm')) return;
             values[field.id] = { value: field.value, checked: field.checked };
         });
         var modals = {};
@@ -288,8 +302,6 @@
         return {
             values: values,
             modals: modals,
-            productFilter: productFilter,
-            activeCategoryId: activeCategoryId,
             inventorySort: inventorySort,
             scrollY: window.scrollY,
             selectedItemId: selectedItem && selectedItem.id || '',
@@ -322,12 +334,7 @@
             uiStateRestored = true;
             return true;
         }
-        productFilter = ['all', 'available', 'expired'].indexOf(state.productFilter) !== -1 ? state.productFilter : productFilter;
-        if (typeof state.activeCategoryId === 'string') activeCategoryId = state.activeCategoryId;
         if (typeof state.inventorySort === 'string') inventorySort = state.inventorySort;
-        if (state.values && typeof state.values === 'object' && typeof state.values.productSearch === 'string') {
-            $('productSearch').value = state.values.productSearch;
-        }
         renderProducts();
 
         var saleModalOpen = state.modals && state.modals.saleModal === false;
@@ -341,7 +348,7 @@
         if (state.values && typeof state.values === 'object') {
             Object.keys(state.values).forEach(function (id) {
                 var field = $(id), saved = state.values[id];
-                if (!field || !saved || field.closest('#loginForm') || field.type === 'password' || field.type === 'file') return;
+                if (!field || !saved || id === 'productSearch' || field.closest('#loginForm') || field.type === 'password' || field.type === 'file') return;
                 if (field.type === 'checkbox' || field.type === 'radio') field.checked = Boolean(saved.checked);
                 else if (typeof saved.value === 'string') field.value = saved.value;
             });
@@ -392,6 +399,12 @@
     function matchesProductFilter(item) {
         var available = (number(item.quantity) || 0) > 0;
         return productFilter === 'all' || (productFilter === 'available' && available) || (productFilter === 'expired' && !available);
+    }
+
+    function productCategoryName(item) {
+        if (!item.categoryId) return 'فئة غير محددة';
+        var category = categories.find(function (entry) { return entry.id === item.categoryId; });
+        return category ? (category.name || 'فئة غير محددة') : (item.categoryName || 'فئة غير محددة');
     }
 
     function renderCategoryFilters() {
@@ -453,7 +466,7 @@
     function filterAndSortProducts(term) {
         var searchTerm = String(term || '').trim(), normalizedSearchTerm = searchTerm.toLocaleLowerCase();
         var source = (Array.isArray(items) ? items : []).filter(function (item) {
-            return matchesProductFilter(item) && (!activeCategoryId || item.categoryId === activeCategoryId);
+            return matchesProductFilter(item) && (searchTerm || !activeCategoryId || item.categoryId === activeCategoryId);
         });
         if (searchTerm) {
             var searched = source.filter(function (item) { return String(item.name || '').toLocaleLowerCase().includes(normalizedSearchTerm); });
@@ -504,7 +517,7 @@
         var visibleIds = new Set(visible.map(function (item) { return item.id; }));
         productElements.forEach(function (element, id) { if (!visibleIds.has(id)) element.remove(); });
         visible.forEach(function (item) {
-            var stock = number(item.quantity) || 0, signature = JSON.stringify([item.name, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
+            var stock = number(item.quantity) || 0, categoryName = productCategoryName(item), signature = JSON.stringify([item.name, categoryName, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
             var element = productElements.get(item.id);
             if (!element) { element = document.createElement('article'); element.className = 'product-card'; element.dataset.productId = item.id; productElements.set(item.id, element); }
             element.classList.toggle('expired-product', stock <= 0);
@@ -514,7 +527,7 @@
                 element.dataset.signature = signature;
                 element.innerHTML =
                 (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
-                '<h2 class="product-name">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2>' +
+                '<div class="product-title-group"><h2 class="product-name">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2><p class="product-category">' + esc(categoryName) + '</p></div>' +
                 '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong class="location-value">' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
                 '<div class="prices">' +
                 '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(productSecondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
@@ -775,6 +788,9 @@
             dayStats[key].count += 1;
             dayStats[key].total += secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0));
         });
+        var todayTotal = dayStats[dayKey(Date.now())] ? dayStats[dayKey(Date.now())].total : 0;
+        window.xmetalDailySalesTotal = todayTotal;
+        window.dispatchEvent(new CustomEvent('xmetal:daily-sales-total', { detail: { total: todayTotal } }));
         var shown = ordered, previousDay = null, dayNumber = 0, html = '';
         shown.forEach(function (sale) {
             var currentDay = dayKey(sale.timestamp);
@@ -1093,6 +1109,79 @@
         $('clearProductSearch').hidden = !$('productSearch').value;
     }
 
+    function normalizeSearchValue(value) {
+        return String(value || '').trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/\s+/g, ' ');
+    }
+
+    function searchTokens(value) {
+        return normalizeSearchValue(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    }
+
+    function isWholeProductNameMatch(query) {
+        var normalizedQuery = normalizeSearchValue(query);
+        var queryTokens = searchTokens(normalizedQuery);
+        if (!queryTokens.length) return false;
+        return items.some(function (item) {
+            var nameTokens = searchTokens(item.name);
+            for (var start = 0; start <= nameTokens.length - queryTokens.length; start += 1) {
+                if (queryTokens.every(function (token, offset) { return token === nameTokens[start + offset]; })) return true;
+            }
+            return false;
+        });
+    }
+
+    function recordEmployeeSearch(query) {
+        if (!query) return;
+        searchDraftSaved = true;
+        var currentUser = auth && auth.currentUser;
+        if (!currentUser || !db) {
+            console.warn('Unable to save employee search history: authentication or Firestore is unavailable.');
+            return;
+        }
+        var seller = getCurrentSellerInfo();
+        db.collection('employeeSearchHistory').add({
+            query: query,
+            employeeUid: currentUser.uid,
+            employeeEmail: seller.email,
+            employeeName: seller.name,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(function (error) {
+            console.warn('Unable to save employee search history:', error);
+        });
+    }
+
+    function commitCurrentSearch() {
+        var query = $('productSearch').value.trim();
+        if (!query || searchDraftSaved) return;
+        clearTimeout(searchSaveTimer);
+        recordEmployeeSearch(query);
+    }
+
+    function handleProductSearchInput(previousValue) {
+        var currentValue = $('productSearch').value;
+        var normalizedValue = normalizeSearchValue(currentValue);
+        if (!normalizedValue) {
+            clearTimeout(searchSaveTimer);
+            if (searchDraftValue && !searchDraftSaved && isWholeProductNameMatch(previousValue)) {
+                recordEmployeeSearch(previousValue.trim());
+            }
+            searchDraftValue = '';
+            searchDraftSaved = false;
+            return;
+        }
+        if (normalizedValue !== searchDraftValue) {
+            clearTimeout(searchSaveTimer);
+            searchDraftValue = normalizedValue;
+            searchDraftSaved = false;
+            searchSaveTimer = setTimeout(function () {
+                if (normalizeSearchValue($('productSearch').value) === searchDraftValue) commitCurrentSearch();
+            }, 1300);
+        }
+    }
+
+    try { localStorage.removeItem('xmetalMobileSalesSearchHistoryV1'); }
+    catch (error) { console.warn('Unable to clear old local mobile sales search history.', error); }
+
     $('clearProductSearch').addEventListener('click', function () {
         $('productSearch').value = '';
         $('productSearch').dispatchEvent(new Event('input', { bubbles: true }));
@@ -1102,7 +1191,20 @@
     updateSearchClearButton();
 
     $('loginForm').addEventListener('submit', function (event) { event.preventDefault(); showError('loginError', ''); auth.signInWithEmailAndPassword($('email').value.trim(), $('password').value).catch(function () { showError('loginError', 'بيانات الدخول غير صحيحة'); }); });
-    $('productSearch').addEventListener('input', function () { renderProducts(); scrollToProductsTop(); });
+    $('productSearch').addEventListener('input', function () {
+        var currentSearchValue = $('productSearch').value;
+        handleProductSearchInput(previousSearchValue);
+        previousSearchValue = currentSearchValue;
+        renderProducts();
+        scrollToProductsTop();
+    });
+    $('productSearch').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') commitCurrentSearch();
+    });
+    window.addEventListener('wheel', function (event) {
+        if (event.deltaY) commitCurrentSearch();
+    }, { passive: true });
+    window.addEventListener('touchmove', function () { commitCurrentSearch(); }, { passive: true });
     $('productFilters').addEventListener('click', function (event) {
         var button = event.target.closest('[data-product-filter]');
         if (!button) return;
