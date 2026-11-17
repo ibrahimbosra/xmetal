@@ -4,7 +4,7 @@
 
     var db = window.firebaseDb;
     var auth = window.firebaseAuth;
-    var SOURCE = 'mobile-sales';
+    var SOURCE = 'mob-admin';
     var MOBILE_THEME_KEY = 'xmetalMobAdminTheme';
     var currentTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
     var items = [];
@@ -27,6 +27,7 @@
     var CACHE_KEY = 'xmetalMobAdminCacheV1';
     var UI_STATE_KEY = CACHE_KEY + ':ui';
     var employeeSearchHistoryRequest = 0;
+    var employeeOperationsRequest = 0;
     var pendingUiState = null;
     var uiStateRestored = false;
     var uiStateSaveTimer = null;
@@ -1045,6 +1046,18 @@
         if (tab.dataset.settingsTab === 'employeeSettingsPanel') loadEmployeeSearchHistory();
     }
 
+    function activateEmployeeTab(tab) {
+        var tabs = $('employeeSettingsPanel').querySelectorAll('[data-employee-tab]');
+        tabs.forEach(function (button) {
+            var active = button === tab;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+            button.tabIndex = active ? 0 : -1;
+            var panel = $(button.dataset.employeeTab);
+            if (panel) panel.hidden = !active;
+        });
+    }
+
     function activateCategoryTab(tab) {
         var tabs = $('categorySettingsPanel').querySelectorAll('[data-category-tab]');
         tabs.forEach(function (button) {
@@ -1410,7 +1423,7 @@
             var cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
             if (!cached) return false;
             if (Array.isArray(cached.items)) items = cached.items;
-            if (Array.isArray(cached.sales)) sales = uniqueSales(cached.sales);
+            if (Array.isArray(cached.sales)) sales = uniqueSales(cached.sales.filter(function (sale) { return sale && sale.source === SOURCE; }));
             if (cached.currency) currency = Object.assign(currency, cached.currency);
             var savedScroll = Number(localStorage.getItem(CACHE_KEY + ':scrollY'));
             if (!Number.isFinite(savedScroll)) savedScroll = cached.scrollY;
@@ -1969,7 +1982,7 @@
     }
 
     function salesFromSnapshot(snap) {
-        return uniqueSales(snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); }));
+        return uniqueSales(snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); }).filter(function (sale) { return sale && sale.source === SOURCE; }));
     }
 
     async function loadOlderSales() {
@@ -2378,6 +2391,243 @@
         }
     }
 
+    function employeeOperationLabel(action) {
+        var labels = {
+            session_start: 'فتح جلسة',
+            search: 'بحث',
+            sale_create: 'بيع',
+            sale_update_price: 'تعديل سعر بيع',
+            sale_update_quantity: 'تعديل كمية بيع',
+            sale_cancel: 'إلغاء بيع',
+            history_open: 'فتح السجل'
+        };
+        return labels[action] || action || 'عملية';
+    }
+    function legacyEmployeeDeviceId(record) {
+        var source = record && (record.sessionId || record.employeeUid || record.employeeEmail || record.employeeName);
+        source = String(source || 'legacy-employee');
+        var hash = 2166136261;
+        for (var index = 0; index < source.length; index++) {
+            hash ^= source.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return 'legacy-device-' + (hash >>> 0).toString(16).padStart(8, '0');
+    }
+    async function backfillEmployeeOperationDeviceIds(records) {
+        var batch = db.batch();
+        var updates = 0;
+        records.forEach(function (record) {
+            if (record.deviceId) return;
+            var legacyId = legacyEmployeeDeviceId(record);
+            record.deviceId = legacyId;
+            batch.update(db.collection('employeeOperations').doc(record.id), {
+                deviceId: legacyId,
+                deviceIdBackfilled: true,
+                deviceIdBackfilledAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            updates++;
+        });
+        if (updates) await batch.commit();
+        return updates;
+    }
+    function employeeOperationDetails(record) {
+        var details = record.details && typeof record.details === 'object' ? record.details : {};
+        var parts = [];
+        if (record.employeeName || record.employeeEmail) parts.push((record.employeeName || record.employeeEmail));
+        var device = record.device && typeof record.device === 'object' ? record.device : null;
+        if (device) {
+            var deviceParts = [];
+            if (device.type) deviceParts.push(device.type);
+            if (device.browser) deviceParts.push(device.browser);
+            if (device.platform) deviceParts.push(device.platform);
+            if (device.screen) deviceParts.push('الشاشة ' + device.screen);
+            parts.push('الجهاز: ' + deviceParts.join(' — ') + (record.deviceId ? ' | المعرف: ' + record.deviceId : ''));
+        }
+        if (details.durationSeconds !== undefined) parts.push('مدة الجلسة: ' + details.durationSeconds + ' ثانية');
+        if (details.scrollCount !== undefined) parts.push('عدد التمريرات: ' + details.scrollCount);
+        if (details.scrollY !== undefined) parts.push('موضع التمرير: ' + details.scrollY);
+        if (details.query) parts.push('العبارة: ' + details.query);
+        if (details.label) parts.push('ضغط على: ' + details.label);
+        if (details.itemName) parts.push('المنتج: ' + details.itemName);
+        if (details.quantity !== undefined) parts.push('الكمية: ' + money(details.quantity));
+        if (details.oldQuantity !== undefined) parts.push('الكمية السابقة: ' + money(details.oldQuantity));
+        if (details.oldUnitPrice !== undefined) parts.push('السعر السابق: ' + price(secondary(details.oldUnitPrice)));
+        if (details.unitPrice !== undefined) parts.push('السعر: ' + price(secondary(details.unitPrice)));
+        if (details.totalAmount !== undefined) parts.push('الإجمالي: ' + price(secondary(details.totalAmount)));
+        if (details.imageUrl) parts.push('تم تكبير صورة المنتج');
+        if (details.url) parts.push('الصفحة: ' + details.url);
+        if (!parts.length) parts.push('بدون تفاصيل إضافية');
+        return parts.join(' — ');
+    }
+    function renderEmployeeOperations(records) {
+        var container = $('employeeOperationEntries');
+        container.replaceChildren();
+        var filter = $('employeeOperationsActionFilter').value;
+        var allowedActions = ['session_start', 'search', 'sale_create', 'sale_update_price', 'sale_update_quantity', 'sale_cancel', 'history_open'];
+        var filtered = (Array.isArray(records) ? records : []).filter(function (record) { return allowedActions.includes(record.action); });
+        if (filter) filtered = filtered.filter(function (record) { return record.action === filter; });
+        if (!filtered.length) {
+            var empty = document.createElement('p');
+            empty.className = 'empty-state';
+            empty.textContent = 'لا توجد عمليات مسجلة';
+            container.appendChild(empty);
+            return;
+        }
+        filtered.forEach(function (record) {
+            var entry = document.createElement('article');
+            entry.className = 'employee-operation-entry';
+            entry.dataset.operationId = record.id;
+            entry.tabIndex = 0;
+            entry.setAttribute('role', 'button');
+            var timeValue = timestampValue(record.timestamp) || (record.createdAt && record.createdAt.toMillis ? record.createdAt.toMillis() : Date.now());
+            entry.innerHTML =
+                '<div class="employee-operation-entry-main">' +
+                    '<div class="employee-operation-entry-head"><strong>' + esc(employeeOperationLabel(record.action)) + '</strong><time datetime="' + new Date(timeValue).toISOString() + '">' + esc(date(timeValue)) + '</time></div>' +
+                    '<div class="employee-operation-entry-summary">' + esc(employeeOperationDetails(record)) + '</div>' +
+                '</div>' +
+                '<span class="employee-operation-entry-arrow" aria-hidden="true">‹</span>';
+            container.appendChild(entry);
+        });
+    }
+    function openEmployeeOperationDetail(record) {
+        if (!record) return;
+        var details = record.details && typeof record.details === 'object' ? record.details : {};
+        var timeValue = timestampValue(record.timestamp) || (record.createdAt && record.createdAt.toMillis ? record.createdAt.toMillis() : Date.now());
+        var rows = [
+            ['نوع العملية', employeeOperationLabel(record.action)],
+            ['التاريخ والوقت', new Date(timeValue).toLocaleString('ar-SA-u-nu-latn')],
+            ['الموظف', record.employeeName || record.employeeEmail || 'غير محدد'],
+            ['البريد', record.employeeEmail || 'غير محدد'],
+            ['معرف الجلسة', record.sessionId || 'غير محدد'],
+            ['معرف الجهاز', record.deviceId || 'غير متوفر'],
+            ['نوع الجهاز', record.device && record.device.type ? record.device.type : 'غير محدد'],
+            ['المتصفح', record.device && record.device.browser ? record.device.browser : 'غير محدد'],
+            ['منصة الجهاز', record.device && record.device.platform ? record.device.platform : 'غير محدد'],
+            ['الشاشة', record.device && record.device.screen ? record.device.screen : 'غير محدد'],
+            ['الحجم', record.device && record.device.viewport ? record.device.viewport : 'غير محدد'],
+            ['User Agent', record.device && record.device.userAgent ? record.device.userAgent : 'غير محدد'],
+            ['اللغة', record.device && record.device.language ? record.device.language : 'غير محدد'],
+            ['اللغات', record.device && record.device.languages ? record.device.languages.join('، ') : 'غير محدد'],
+            ['المنطقة الزمنية', record.device && record.device.timezone ? record.device.timezone : 'غير محدد'],
+            ['أنوية المعالج', record.device && record.device.hardwareConcurrency ? String(record.device.hardwareConcurrency) : 'غير محدد'],
+            ['ذاكرة الجهاز', record.device && record.device.deviceMemory ? record.device.deviceMemory + ' GB' : 'غير محدد'],
+            ['نقاط اللمس', record.device && record.device.maxTouchPoints !== undefined ? String(record.device.maxTouchPoints) : 'غير محدد'],
+            ['متصل بالإنترنت', record.device && record.device.online !== undefined ? (record.device.online ? 'نعم' : 'لا') : 'غير محدد'],
+            ['دعم/حالة Cookies', record.device && record.device.cookieEnabled !== undefined ? (record.device.cookieEnabled ? 'مفعّل' : 'غير مفعّل') : 'غير محدد'],
+            ['نوع الاتصال', record.device && record.device.connectionType ? record.device.connectionType : 'غير محدد'],
+            ['سرعة التنزيل', record.device && record.device.connectionDownlink !== null && record.device.connectionDownlink !== undefined ? record.device.connectionDownlink + ' Mbps' : 'غير محدد'],
+            ['زمن الاستجابة', record.device && record.device.connectionRtt !== null && record.device.connectionRtt !== undefined ? record.device.connectionRtt + ' ms' : 'غير محدد'],
+            ['توفير البيانات', record.device && record.device.saveData !== undefined ? (record.device.saveData ? 'مفعّل' : 'غير مفعّل') : 'غير محدد'],
+            ['عمق الألوان', record.device && record.device.colorDepth ? String(record.device.colorDepth) : 'غير محدد'],
+            ['Pixel Ratio', record.device && record.device.devicePixelRatio ? String(record.device.devicePixelRatio) : 'غير محدد'],
+            ['الاتجاه', record.device && record.device.orientation ? record.device.orientation : 'غير محدد'],
+            ['الصفحة', details.url || 'غير محدد'],
+            ['العبارة', details.query || 'غير محدد'],
+            ['النقر', details.label || 'غير محدد'],
+            ['اسم المنتج', details.itemName || 'غير محدد'],
+            ['معرف المنتج', details.itemId || 'غير محدد'],
+            ['الكمية', details.quantity !== undefined ? String(details.quantity) : 'غير محدد'],
+            ['السعر', details.unitPrice !== undefined ? price(secondary(details.unitPrice)) : 'غير محدد'],
+            ['الإجمالي', details.totalAmount !== undefined ? price(secondary(details.totalAmount)) : 'غير محدد'],
+            ['مسمى البيع', details.saleMode || 'غير محدد'],
+            ['معرف البيع', details.saleId || 'غير محدد'],
+            ['مدة الجلسة', details.durationSeconds !== undefined ? details.durationSeconds + ' ثانية' : 'غير محدد'],
+            ['عدد التمريرات', details.scrollCount !== undefined ? String(details.scrollCount) : 'غير محدد'],
+            ['موضع التمرير', details.scrollY !== undefined ? String(details.scrollY) : 'غير محدد'],
+            ['صورة مكبرة', details.imageUrl ? 'نعم' : 'لا']
+        ];
+        $('employeeOperationDetailContent').innerHTML = rows.map(function (row) {
+            if (row[0] === 'معرف الجهاز' && record.deviceId) {
+                return '<div class="employee-operation-detail-row"><strong>' + esc(row[0]) + '</strong><span class="employee-detail-device-id"><code>' + esc(record.deviceId) + '</code><button type="button" class="employee-device-copy-button employee-device-copy-icon" data-copy-detail-device-id="' + esc(record.deviceId) + '" aria-label="نسخ معرف الجهاز" title="نسخ معرف الجهاز"><i class="fas fa-copy" aria-hidden="true"></i></button></span></div>';
+            }
+            return '<div class="employee-operation-detail-row"><strong>' + esc(row[0]) + '</strong><span>' + esc(row[1]) + '</span></div>';
+        }).join('');
+        $('employeeOperationDetailTitle').textContent = employeeOperationLabel(record.action);
+        $('employeeOperationDetailModal').hidden = false;
+    }
+    function closeEmployeeOperationDetail() {
+        $('employeeOperationDetailModal').hidden = true;
+    }
+    function renderAllowedEmployeeDevices(ids) {
+        var container = $('employeeAllowedDeviceList');
+        container.replaceChildren();
+        (Array.isArray(ids) ? ids : []).forEach(function (deviceId) {
+            var row = document.createElement('div');
+            row.className = 'employee-allowed-device-item';
+            row.innerHTML =
+                '<code>' + esc(deviceId) + '</code>' +
+                '<button type="button" class="employee-device-remove-button" data-remove-allowed-device="' + esc(deviceId) + '">إزالة</button>';
+            container.appendChild(row);
+        });
+    }
+    async function loadEmployeeDeviceAccess() {
+        try {
+            var doc = await db.collection('systemSettings').doc('deviceAccessControl').get();
+            var data = doc.exists ? doc.data() : {};
+            var mode = data.mode === 'allowlist' ? 'allowlist' : 'blocklist';
+            var ids = Array.isArray(data.allowedDeviceIds) ? data.allowedDeviceIds : [];
+            $('employeeDeviceAccessMode').value = mode;
+            renderAllowedEmployeeDevices(ids);
+        } catch (error) {
+            console.error('Unable to load employee device access:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر تحميل إعدادات الأجهزة';
+        }
+    }
+    async function saveEmployeeDeviceAccess(mode, allowedDeviceIds) {
+        await db.collection('systemSettings').doc('deviceAccessControl').set({
+            mode: mode,
+            allowedDeviceIds: Array.isArray(allowedDeviceIds) ? allowedDeviceIds : [],
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+    async function deleteEmployeeOperations() {
+        if (!window.confirm('هل تريد حذف سجل العمليات بالكامل؟ لا يمكن استرجاعه بعد الحذف.')) return;
+        var button = $('deleteEmployeeOperations');
+        button.disabled = true;
+        $('employeeOperationsStatus').textContent = 'جارٍ حذف سجل العمليات...';
+        try {
+            var deletedCount = 0;
+            while (true) {
+                var snapshot = await db.collection('employeeOperations').limit(500).get();
+                if (snapshot.empty) break;
+                var batch = db.batch();
+                snapshot.docs.forEach(function (doc) { batch.delete(doc.ref); });
+                await batch.commit();
+                deletedCount += snapshot.docs.length;
+                if (snapshot.docs.length < 500) break;
+            }
+            window.employeeOperationsRecords = [];
+            renderEmployeeOperations([]);
+            $('employeeOperationsStatus').textContent = deletedCount
+                ? 'تم حذف سجل العمليات (' + deletedCount + ' عملية)'
+                : 'سجل العمليات فارغ بالفعل';
+        } catch (error) {
+            console.error('Unable to delete employee operations:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر حذف سجل العمليات';
+        } finally {
+            button.disabled = false;
+        }
+    }
+    async function loadEmployeeOperations() {
+        var requestId = ++employeeOperationsRequest;
+        $('employeeOperationsStatus').textContent = 'جارٍ تحميل سجل العمليات...';
+        try {
+            var snapshot = await db.collection('employeeOperations')
+                .orderBy('timestamp', 'desc')
+                .limit(500)
+                .get();
+            if (requestId !== employeeOperationsRequest) return;
+            var records = snapshot.docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
+            var backfilled = await backfillEmployeeOperationDeviceIds(records);
+            window.employeeOperationsRecords = records;
+            renderEmployeeOperations(records);
+            $('employeeOperationsStatus').textContent = backfilled ? 'تمت إضافة معرفات الأجهزة إلى ' + backfilled + ' عملية قديمة' : '';
+        } catch (error) {
+            if (requestId !== employeeOperationsRequest) return;
+            console.error('Unable to load employee operations:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر تحميل سجل العمليات';
+        }
+    }
     async function loadEmployeeSearchHistory() {
         var requestId = ++employeeSearchHistoryRequest;
         $('employeeSearchHistoryStatus').textContent = 'جارٍ تحميل السجل...';
@@ -2400,6 +2650,43 @@
         }
     }
 
+    async function loadEmployeePriceMarkup() {
+        $('employeePriceMarkupStatus').textContent = 'جارٍ تحميل النسبة...';
+        try {
+            var doc = await db.collection('systemSettings').doc('employeePricing').get();
+            var markup = doc.exists ? Number(doc.data().markupPercent) : 0;
+            if (!Number.isFinite(markup) || markup < 0) markup = 0;
+            $('employeePriceMarkup').value = String(Math.min(markup, 500));
+            $('employeePriceMarkupStatus').textContent = '';
+        } catch (error) {
+            console.error('Unable to load employee price markup:', error);
+            $('employeePriceMarkupStatus').textContent = 'تعذر تحميل نسبة الزيادة';
+        }
+    }
+
+    async function saveEmployeePriceMarkup() {
+        var markup = Number($('employeePriceMarkup').value);
+        if (!Number.isFinite(markup) || markup < 0 || markup > 500) {
+            $('employeePriceMarkupStatus').textContent = 'أدخل نسبة صحيحة من 0 إلى 500';
+            return;
+        }
+        var button = $('saveEmployeePriceMarkup');
+        button.disabled = true;
+        $('employeePriceMarkupStatus').textContent = 'جارٍ حفظ النسبة...';
+        try {
+            await db.collection('systemSettings').doc('employeePricing').set({
+                markupPercent: markup,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            $('employeePriceMarkupStatus').textContent = 'تم حفظ نسبة الزيادة بنجاح';
+        } catch (error) {
+            console.error('Unable to save employee price markup:', error);
+            $('employeePriceMarkupStatus').textContent = 'تعذر حفظ نسبة الزيادة';
+        } finally {
+            button.disabled = false;
+        }
+    }
+
     $('employeeSearchHistoryEntries').addEventListener('click', async function (event) {
         var button = event.target.closest('[data-search-history-delete]');
         if (!button) return;
@@ -2414,6 +2701,164 @@
         }
     });
     $('refreshEmployeeSearchHistory').addEventListener('click', loadEmployeeSearchHistory);
+    $('refreshEmployeeOperations').addEventListener('click', loadEmployeeOperations);
+    $('deleteEmployeeOperations').addEventListener('click', deleteEmployeeOperations);
+    $('employeeDeviceAccessMode').addEventListener('change', async function () {
+        var ids = Array.from($('employeeAllowedDeviceList').querySelectorAll('[data-remove-allowed-device]')).map(function (button) { return button.dataset.removeAllowedDevice; });
+        try {
+            await saveEmployeeDeviceAccess($('employeeDeviceAccessMode').value, ids);
+            $('employeeOperationsStatus').textContent = $('employeeDeviceAccessMode').value === 'allowlist'
+                ? 'تم تفعيل السماح للأجهزة المحددة فقط'
+                : 'تم إلغاء وضع قائمة السماح';
+        } catch (error) {
+            console.error('Unable to save employee device access mode:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر حفظ نمط الأجهزة';
+        }
+    });
+    $('addEmployeeAllowedDevice').addEventListener('click', async function () {
+        var deviceId = $('employeeAllowedDeviceId').value.trim();
+        if (!deviceId) {
+            $('employeeOperationsStatus').textContent = 'أدخل معرف الجهاز أولاً';
+            return;
+        }
+        var ids = Array.from($('employeeAllowedDeviceList').querySelectorAll('[data-remove-allowed-device]')).map(function (button) { return button.dataset.removeAllowedDevice; });
+        if (!ids.includes(deviceId)) ids.push(deviceId);
+        try {
+            await saveEmployeeDeviceAccess('allowlist', ids);
+            $('employeeDeviceAccessMode').value = 'allowlist';
+            $('employeeAllowedDeviceId').value = '';
+            renderAllowedEmployeeDevices(ids);
+            $('employeeOperationsStatus').textContent = 'تمت إضافة الجهاز إلى قائمة السماح';
+        } catch (error) {
+            console.error('Unable to add allowed employee device:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر إضافة الجهاز';
+        }
+    });
+    $('clearEmployeeAllowedDevices').addEventListener('click', async function () {
+        if (!window.confirm('هل تريد مسح قائمة الأجهزة المسموحة؟')) return;
+        try {
+            await saveEmployeeDeviceAccess('blocklist', []);
+            $('employeeDeviceAccessMode').value = 'blocklist';
+            renderAllowedEmployeeDevices([]);
+            $('employeeOperationsStatus').textContent = 'تم مسح قائمة السماح وإعادة الوضع إلى الحظر المحدد';
+        } catch (error) {
+            console.error('Unable to clear allowed employee devices:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر مسح قائمة السماح';
+        }
+    });
+    $('employeeAllowedDeviceList').addEventListener('click', async function (event) {
+        var button = event.target.closest('[data-remove-allowed-device]');
+        if (!button) return;
+        var ids = Array.from($('employeeAllowedDeviceList').querySelectorAll('[data-remove-allowed-device]')).map(function (item) { return item.dataset.removeAllowedDevice; }).filter(function (id) { return id !== button.dataset.removeAllowedDevice; });
+        try {
+            await saveEmployeeDeviceAccess($('employeeDeviceAccessMode').value, ids);
+            renderAllowedEmployeeDevices(ids);
+            $('employeeOperationsStatus').textContent = 'تمت إزالة الجهاز من قائمة السماح';
+        } catch (error) {
+            console.error('Unable to remove allowed employee device:', error);
+            $('employeeOperationsStatus').textContent = 'تعذر إزالة الجهاز';
+        }
+    });
+    $('employeeOperationEntries').addEventListener('click', async function (event) {
+        var copyButton = event.target.closest('[data-copy-device-id]');
+        if (copyButton) {
+            var copyText = copyButton.dataset.copyDeviceId;
+            try {
+                await navigator.clipboard.writeText(copyText);
+                copyButton.textContent = 'تم النسخ';
+                $('employeeOperationsStatus').textContent = 'تم نسخ معرف الجهاز';
+            } catch (error) {
+                if (window.prompt) {
+                    window.prompt('انسخ معرف الجهاز:', copyText);
+                }
+            }
+            return;
+        }
+        var button = event.target.closest('[data-device-block]');
+        if (!button) return;
+        var deviceId = button.dataset.deviceBlock;
+        if (!deviceId) return;
+        button.disabled = true;
+        try {
+            var accessRef = db.collection('deviceAccess').doc(deviceId);
+            var accessDoc = await accessRef.get();
+            var currentlyBlocked = accessDoc.exists && accessDoc.data().blocked === true;
+            if (currentlyBlocked) {
+                if (!window.confirm('هل تريد إلغاء حظر الجهاز:\n' + deviceId)) { button.disabled = false; return; }
+                await accessRef.set({ blocked: false, deviceId: deviceId, unblockedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                button.textContent = 'حظر هذا الجهاز';
+                $('employeeOperationsStatus').textContent = 'تم إلغاء حظر هذا الجهاز';
+            } else {
+                if (!window.confirm('هل تريد حظر الجهاز الذي يحمل المعرف:\n' + deviceId + '\nلن تتمكن صفحة الموظف من فتحه بعد الحظر.')) { button.disabled = false; return; }
+                await accessRef.set({ blocked: true, deviceId: deviceId, blockedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                button.textContent = 'إلغاء حظر الجهاز';
+                $('employeeOperationsStatus').textContent = 'تم حظر هذا الجهاز';
+            }
+        } catch (error) {
+            console.error('Unable to block employee device:', error);
+            button.disabled = false;
+            $('employeeOperationsStatus').textContent = 'تعذر حظر الجهاز';
+        }
+    });
+    $('employeeOperationsActionFilter').addEventListener('change', function () {
+        renderEmployeeOperations(window.employeeOperationsRecords || []);
+    });
+    $('employeeOperationEntries').addEventListener('click', function (event) {
+        if (event.target.closest('button')) return;
+        var entry = event.target.closest('[data-operation-id]');
+        if (!entry) return;
+        var record = (window.employeeOperationsRecords || []).find(function (item) { return item.id === entry.dataset.operationId; });
+        openEmployeeOperationDetail(record);
+    });
+    $('employeeOperationEntries').addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        var entry = event.target.closest('[data-operation-id]');
+        if (!entry) return;
+        event.preventDefault();
+        var record = (window.employeeOperationsRecords || []).find(function (item) { return item.id === entry.dataset.operationId; });
+        openEmployeeOperationDetail(record);
+    });
+    $('closeEmployeeOperationDetail').addEventListener('click', closeEmployeeOperationDetail);
+    $('employeeOperationDetailModal').addEventListener('click', async function (event) {
+        var copyButton = event.target.closest('[data-copy-detail-device-id]');
+        if (copyButton) {
+            var copyText = copyButton.dataset.copyDetailDeviceId;
+            try {
+                await navigator.clipboard.writeText(copyText);
+                copyButton.innerHTML = '<i class="fas fa-check" aria-hidden="true"></i>';
+                copyButton.setAttribute('aria-label', 'تم النسخ');
+                copyButton.title = 'تم النسخ';
+                $('employeeOperationsStatus').textContent = 'تم نسخ معرف الجهاز';
+            } catch (error) {
+                if (window.prompt) window.prompt('انسخ معرف الجهاز:', copyText);
+            }
+            return;
+        }
+        if (event.target === $('employeeOperationDetailModal')) closeEmployeeOperationDetail();
+    });
+    $('employeeSettingsPanel').querySelector('[role="tablist"]').addEventListener('click', function (event) {
+        var tab = event.target.closest('[data-employee-tab]');
+        if (!tab) return;
+        activateEmployeeTab(tab);
+        if (tab.dataset.employeeTab === 'employeePricesPanel') loadEmployeePriceMarkup();
+        if (tab.dataset.employeeTab === 'employeeSearchHistoryPanel') loadEmployeeSearchHistory();
+        if (tab.dataset.employeeTab === 'employeeOperationsPanel') { loadEmployeeOperations(); loadEmployeeDeviceAccess(); }
+    });
+    $('employeeSettingsPanel').querySelector('[role="tablist"]').addEventListener('keydown', function (event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        var tabs = Array.from(this.querySelectorAll('[data-employee-tab]'));
+        var current = tabs.indexOf(document.activeElement);
+        if (current === -1) return;
+        event.preventDefault();
+        var direction = event.key === 'ArrowRight' ? 1 : -1;
+        var next = tabs[(current + direction + tabs.length) % tabs.length];
+        activateEmployeeTab(next);
+        if (next.dataset.employeeTab === 'employeePricesPanel') loadEmployeePriceMarkup();
+        if (next.dataset.employeeTab === 'employeeSearchHistoryPanel') loadEmployeeSearchHistory();
+        if (next.dataset.employeeTab === 'employeeOperationsPanel') { loadEmployeeOperations(); loadEmployeeDeviceAccess(); }
+        next.focus();
+    });
+    $('saveEmployeePriceMarkup').addEventListener('click', saveEmployeePriceMarkup);
     try { localStorage.removeItem('xmetalMobAdminSearchHistoryV1'); }
     catch (error) { console.warn('Unable to clear old local mobile admin search history.', error); }
 
@@ -2480,6 +2925,7 @@
         openModal('settingsModal');
         activateSettingsTab($('categorySettingsTab'));
         activateCategoryTab($('assignCategoryProductsTab'));
+        activateEmployeeTab($('employeeSearchHistoryTab'));
         renderAdminCategorySettings();
     });
     $('settingsModal').querySelector('[role="tablist"]').addEventListener('click', function (event) {

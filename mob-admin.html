@@ -260,6 +260,8 @@
             <section class="settings-section" id="employeeSettingsPanel" role="tabpanel" aria-labelledby="employeeSettingsTab" hidden>
                 <div class="settings-tabs employee-settings-tabs" role="tablist" aria-label="إعدادات الموظف">
                     <button class="settings-tab active" id="employeeSearchHistoryTab" type="button" role="tab" aria-selected="true" aria-controls="employeeSearchHistoryPanel" data-employee-tab="employeeSearchHistoryPanel"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> سجل البحث</button>
+                    <button class="settings-tab" id="employeePricesTab" type="button" role="tab" aria-selected="false" aria-controls="employeePricesPanel" data-employee-tab="employeePricesPanel" tabindex="-1"><i class="fas fa-percent" aria-hidden="true"></i> الأسعار</button>
+                    <button class="settings-tab" id="employeeOperationsTab" type="button" role="tab" aria-selected="false" aria-controls="employeeOperationsPanel" data-employee-tab="employeeOperationsPanel" tabindex="-1"><i class="fas fa-list-check" aria-hidden="true"></i> سجل العمليات</button>
                 </div>
                 <section class="employee-settings-panel" id="employeeSearchHistoryPanel" role="tabpanel" aria-labelledby="employeeSearchHistoryTab">
                     <div class="settings-section-heading">
@@ -268,6 +270,70 @@
                     </div>
                     <p class="form-error" id="employeeSearchHistoryStatus" role="status" aria-live="polite"></p>
                     <div class="employee-search-history-entries" id="employeeSearchHistoryEntries" aria-live="polite"></div>
+                </section>
+                <section class="employee-settings-panel" id="employeePricesPanel" role="tabpanel" aria-labelledby="employeePricesTab" hidden>
+                    <div class="settings-section-heading">
+                        <div><h3>أسعار صفحة الموظف</h3><span>زيادة عرضية لا تغيّر أسعار المخزون الحقيقية</span></div>
+                    </div>
+                    <div class="employee-price-setting">
+                        <label for="employeePriceMarkup">نسبة الزيادة المئوية</label>
+                        <div class="employee-price-input-row">
+                            <input id="employeePriceMarkup" type="number" min="0" max="500" step="0.01" inputmode="decimal" value="0" autocomplete="off">
+                            <span>%</span>
+                        </div>
+                        <p class="input-hint">مثال: إدخال 10 يعني أن الأسعار المعروضة تزيد 10٪ عن الأسعار الحقيقية.</p>
+                        <button class="primary-button" id="saveEmployeePriceMarkup" type="button">حفظ نسبة الزيادة</button>
+                        <p class="form-error" id="employeePriceMarkupStatus" role="status" aria-live="polite"></p>
+                    </div>
+                </section>
+                <section class="employee-settings-panel" id="employeeOperationsPanel" role="tabpanel" aria-labelledby="employeeOperationsTab" hidden>
+                    <div class="settings-section-heading">
+                        <div><h3>سجل العمليات</h3><span>حركات صفحة الموظف بالوقت والتفاصيل</span></div>
+                        <div class="employee-operation-actions">
+                            <button class="primary-button settings-add-category" id="refreshEmployeeOperations" type="button">تحديث</button>
+                            <button class="primary-button employee-operations-delete" id="deleteEmployeeOperations" type="button">حذف السجل</button>
+                        </div>
+                    </div>
+                    <p class="form-error" id="employeeOperationsStatus" role="status" aria-live="polite"></p>
+                    <div class="employee-device-access-panel">
+                        <div class="employee-device-access-row">
+                            <label for="employeeDeviceAccessMode">نمط الأجهزة</label>
+                            <select id="employeeDeviceAccessMode">
+                                <option value="blocklist">حظر أجهزة محددة</option>
+                                <option value="allowlist">السماح لجهاز واحد أو أكثر فقط</option>
+                            </select>
+                        </div>
+                        <div class="employee-device-access-row">
+                            <label for="employeeAllowedDeviceId">معرف الجهاز المسموح</label>
+                            <input id="employeeAllowedDeviceId" type="text" dir="ltr" autocomplete="off" placeholder="device-...">
+                        </div>
+                        <div class="employee-operation-actions employee-device-access-actions">
+                            <button class="primary-button settings-add-category" id="addEmployeeAllowedDevice" type="button">إضافة للسماح</button>
+                            <button class="primary-button employee-operations-delete" id="clearEmployeeAllowedDevices" type="button">مسح القائمة</button>
+                        </div>
+                        <div class="employee-allowed-device-list" id="employeeAllowedDeviceList"></div>
+                    </div>
+                    <div class="employee-operation-filters">
+                        <select id="employeeOperationsActionFilter" aria-label="تصفية نوع العملية">
+                            <option value="">كل العمليات</option>
+                            <option value="session_start">فتح جلسة</option>
+                            <option value="search">البحث</option>
+                            <option value="sale_create">عملية بيع</option>
+                            <option value="sale_update_price">تعديل سعر بيع</option>
+                            <option value="sale_update_quantity">تعديل كمية بيع</option>
+                            <option value="sale_cancel">إلغاء بيع</option>
+                            <option value="history_open">فتح السجل</option>
+                        </select>
+                    </div>
+                    <div class="employee-operation-entries" id="employeeOperationEntries" aria-live="polite"></div>
+                    <div class="employee-operation-detail-backdrop" id="employeeOperationDetailModal" hidden>
+                        <section class="employee-operation-detail-modal" role="dialog" aria-modal="true" aria-labelledby="employeeOperationDetailTitle">
+                            <button class="close-button" id="closeEmployeeOperationDetail" type="button" aria-label="إغلاق">×</button>
+                            <p class="eyebrow">تفاصيل العملية</p>
+                            <h2 id="employeeOperationDetailTitle">تفاصيل العملية</h2>
+                            <div class="employee-operation-detail-content" id="employeeOperationDetailContent"></div>
+                        </section>
+                    </div>
                 </section>
             </section>
         </section>
@@ -304,7 +370,7 @@
     <script src="js/firebase-config.js"></script>
     <script src="js/mob-admin-helpers.js"></script>
     <script src="js/pricingHelpers.js?v=20260929"></script>
-    <script src="js/mob-admin.js?v=challenge-bridge-2"></script>
+    <script src="js/mob-admin.js?v=employee-only-required-actions-1"></script>
     <script src="js/balance-verification.js?v=balance-result-notes-1"></script>
     <script src="js/xmetal-challenge.js?v=challenge-8"></script>
 </body>

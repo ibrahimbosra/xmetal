@@ -5,6 +5,7 @@
     var db = window.firebaseDb;
     var auth = window.firebaseAuth;
     var SOURCE = 'mobile-sales';
+    var EMPLOYEE_SALES_COLLECTION = 'employeeSales';
     var items = [];
     var categories = [];
     var categoriesLoaded = false;
@@ -17,7 +18,7 @@
     var activeSaleMode = null;
     var toastTimer = null;
     var inventorySort = localStorage.getItem('xmetalInventorySort') || 'alphabetical';
-    var productFilter = 'available';
+    var productFilter = 'all';
     var dataLoaded = false;
     var listenersStarted = false;
     var lastSyncAt = 0;
@@ -43,13 +44,128 @@
     var userDisplayNameMapPromise = null;
     var userDisplayNameMapFetchedAt = 0;
     var USER_DISPLAY_NAMES_CACHE_KEY = 'xmetalMobileSalesDisplayNamesCacheV1';
+    var employeeMarkupPercent = null;
+    var employeePricesReady = false;
+    var employeeSessionId = '';
+    var employeeSessionStartedAt = 0;
+    var employeeScrollCount = 0;
+    var employeeScrollTimer = null;
+    var employeeDeviceId = '';
     var helpers = window.XMetalMobileSalesHelpers || {};
 
     var $ = function (id) { return document.getElementById(id); };
+    function employeeIdentity() {
+        var user = auth && auth.currentUser;
+        return {
+            email: user && user.email ? user.email : '',
+            uid: user && user.uid ? user.uid : '',
+            name: getSellerLabel({ sellerEmail: user && user.email, sellerName: user && user.displayName })
+        };
+    }
+    function getEmployeeDeviceId() {
+        if (employeeDeviceId) return employeeDeviceId;
+        try {
+            employeeDeviceId = localStorage.getItem('xmetalEmployeeDeviceId') || '';
+        } catch (error) { employeeDeviceId = ''; }
+        if (!employeeDeviceId) {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') employeeDeviceId = 'device-' + window.crypto.randomUUID();
+            else employeeDeviceId = 'device-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+            try { localStorage.setItem('xmetalEmployeeDeviceId', employeeDeviceId); } catch (error) {}
+        }
+        return employeeDeviceId;
+    }
+    function employeeDeviceInfo() {
+        var ua = navigator.userAgent || '';
+        var platform = navigator.platform || '';
+        var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+        var deviceType = 'كمبيوتر';
+        if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) deviceType = 'جهاز لوحي';
+        else if (/Android/i.test(ua)) deviceType = /Mobile/i.test(ua) ? 'هاتف أندرويد' : 'جهاز لوحي أندرويد';
+        else if (/iPhone|iPod/i.test(ua)) deviceType = 'آيفون';
+        var browser = 'متصفح آخر';
+        if (/EdgA|EdgiOS|Edg\//i.test(ua)) browser = 'Microsoft Edge';
+        else if (/OPR|Opera/i.test(ua)) browser = 'Opera';
+        else if (/SamsungBrowser/i.test(ua)) browser = 'Samsung Internet';
+        else if (/Chrome|CriOS/i.test(ua)) browser = 'Chrome';
+        else if (/Firefox|FxiOS/i.test(ua)) browser = 'Firefox';
+        else if (/Safari/i.test(ua)) browser = 'Safari';
+        return {
+            type: deviceType,
+            browser: browser,
+            platform: platform,
+            screen: (window.screen ? window.screen.width : 0) + '×' + (window.screen ? window.screen.height : 0),
+            viewport: window.innerWidth + '×' + window.innerHeight,
+            userAgent: ua,
+            language: navigator.language || '',
+            languages: Array.isArray(navigator.languages) ? navigator.languages.slice(0, 10) : [],
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+            hardwareConcurrency: navigator.hardwareConcurrency || null,
+            deviceMemory: navigator.deviceMemory || null,
+            maxTouchPoints: navigator.maxTouchPoints || 0,
+            online: navigator.onLine,
+            cookieEnabled: navigator.cookieEnabled,
+            connectionType: connection && connection.effectiveType ? connection.effectiveType : '',
+            connectionDownlink: connection && connection.downlink !== undefined ? connection.downlink : null,
+            connectionRtt: connection && connection.rtt !== undefined ? connection.rtt : null,
+            saveData: connection && connection.saveData ? true : false,
+            colorDepth: window.screen ? window.screen.colorDepth : null,
+            pixelDepth: window.screen ? window.screen.pixelDepth : null,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            orientation: window.screen && window.screen.orientation ? window.screen.orientation.type : ''
+        };
+    }
+    function employeeOperation(action, details) {
+        if (!db) return;
+        var now = Date.now();
+        var identity = employeeIdentity();
+        var device = employeeDeviceInfo();
+        db.collection('employeeOperations').add({
+            timestamp: now,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            sessionId: employeeSessionId,
+            sessionStartedAt: employeeSessionStartedAt,
+            action: action,
+            details: details || {},
+            employeeEmail: identity.email,
+            employeeName: identity.name,
+            employeeUid: identity.uid,
+            device: device,
+            deviceId: getEmployeeDeviceId(),
+            source: SOURCE
+        }).catch(function (error) { console.warn('Unable to log employee operation:', error); });
+    }
+    function startEmployeeSession() {
+        if (employeeSessionId) return;
+        employeeScrollCount = 0;
+        employeeSessionStartedAt = Date.now();
+        employeeSessionId = 'session-' + employeeSessionStartedAt + '-' + Math.random().toString(36).slice(2, 10);
+        try { sessionStorage.setItem('xmetalEmployeeSessionId', employeeSessionId); sessionStorage.setItem('xmetalEmployeeSessionStartedAt', String(employeeSessionStartedAt)); } catch (error) {}
+        employeeOperation('session_start', { url: location.pathname, device: employeeDeviceInfo() });
+    }
+    async function checkEmployeeDeviceBlocked() {
+        try {
+            var controlDoc = await db.collection('systemSettings').doc('deviceAccessControl').get();
+            var control = controlDoc.exists ? controlDoc.data() : {};
+            var deviceId = getEmployeeDeviceId();
+            var accessDoc = await db.collection('deviceAccess').doc(deviceId).get();
+            var blockedInList = accessDoc.exists && accessDoc.data().blocked === true;
+            var allowedInList = Array.isArray(control.allowedDeviceIds) && control.allowedDeviceIds.includes(deviceId);
+            var blocked = control.mode === 'allowlist' ? !allowedInList : blockedInList;
+            $('employeeBlockedScreen').hidden = !blocked;
+            if (blocked) {
+                $('loginScreen').hidden = true;
+                $('appShell').hidden = true;
+            }
+            return blocked;
+        } catch (error) {
+            console.warn('Unable to check employee device access:', error);
+            return false;
+        }
+    }
     window.XMETALChallengeData = {
         getProducts: function () { return items.slice(); },
         getUserId: function () { return auth && auth.currentUser ? auth.currentUser.uid : ''; },
-        getDisplayPrice: function (primaryValue) { return productSecondary(primaryValue); },
+        getDisplayPrice: function (primaryValue) { return productSecondary(applyEmployeeMarkup(primaryValue)); },
         getCurrencySymbol: function () { return currency.secondaryCurrencySymbol; }
     };
     $('productSearch').value = '';
@@ -66,11 +182,31 @@
         return result + esc(text.slice(lastIndex));
     }
     var number = function (value) { var n = Number(value); return Number.isFinite(n) ? n : null; };
+    function stableHash(seed) {
+        var text = String(seed || 'employee-product');
+        var hash = 2166136261;
+        for (var index = 0; index < text.length; index++) {
+            hash ^= text.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+    function fakeDisplayData(item, priceRank) {
+        var seed = String(item && item.id || item && item.name || '');
+        var hash = stableHash(seed);
+        var jitter = hash % 11;
+        var quantity;
+        if (priceRank >= 0.67) quantity = 1 + ((hash >>> 4) % 3);
+        else if (priceRank >= 0.34) quantity = 4 + ((hash >>> 4) % 3);
+        else quantity = 7 + ((hash >>> 4) % 4);
+        var shelf = 1 + (stableHash(seed + ':shelf') % 100);
+        return { quantity: Math.min(10, Math.max(1, quantity)), shelf: shelf };
+    }
     var secondary = function (primary) { return (Number(primary) || 0) * (Number(currency.exchangeRate) || 1); };
     var productSecondary = function (primaryValue) { return window.PriceHelpers && window.PriceHelpers.getSecondaryPrice ? window.PriceHelpers.getSecondaryPrice(primaryValue, currency.exchangeRate) : secondary(primaryValue); };
     var primary = function (secondaryValue) { return (Number(secondaryValue) || 0) / (Number(currency.exchangeRate) || 1); };
     var money = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value) || 0); };
-    var price = function (value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value) || 0); };
+    var price = function (value) { return new Intl.NumberFormat('en-US-u-nu-latn', { maximumFractionDigits: 0, useGrouping: false }).format(Number(value) || 0); };
     function timestampValue(timestamp) {
         if (timestamp && typeof timestamp.toMillis === 'function') return timestamp.toMillis();
         if (timestamp && Number.isFinite(Number(timestamp.seconds))) return Number(timestamp.seconds) * 1000 + (Number(timestamp.nanoseconds) || 0) / 1000000;
@@ -279,7 +415,7 @@
             var cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
             if (!cached) return false;
             if (Array.isArray(cached.items)) items = cached.items;
-            if (Array.isArray(cached.sales)) sales = uniqueSales(cached.sales);
+            if (Array.isArray(cached.sales)) sales = uniqueSales(cached.sales.filter(function (sale) { return sale && sale.source === SOURCE && sale.mockSale === true; }));
             if (cached.currency) currency = Object.assign(currency, cached.currency);
             var savedScroll = Number(localStorage.getItem(CACHE_KEY + ':scrollY'));
             if (!Number.isFinite(savedScroll)) savedScroll = cached.scrollY;
@@ -295,7 +431,7 @@
             values[field.id] = { value: field.value, checked: field.checked };
         });
         var modals = {};
-        ['saleModal', 'historyModal', 'priceWarning', 'quantityWarning'].forEach(function (id) {
+        ['saleModal', 'historyModal', 'priceWarning'].forEach(function (id) {
             var element = $(id);
             if (element) modals[id] = element.hidden;
         });
@@ -370,7 +506,7 @@
             $('historyModal').hidden = true;
         }
         if (state.modals) {
-            ['priceWarning', 'quantityWarning'].forEach(function (id) {
+            ['priceWarning'].forEach(function (id) {
                 if (typeof state.modals[id] === 'boolean' && $(id)) $(id).hidden = state.modals[id];
             });
         }
@@ -387,9 +523,20 @@
     function openModal(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
     function closeModal(id) { $(id).hidden = true; if ($('saleModal').hidden && $('historyModal').hidden) document.body.style.overflow = ''; saveUiState(); }
 
-    function mechanicPrice(item) {
+    function applyEmployeeMarkup(primaryValue) {
+        var value = number(primaryValue);
+        if (value === null) return 0;
+        if (!employeePricesReady || employeeMarkupPercent === null) return 0;
+        return value * (1 + employeeMarkupPercent / 100);
+    }
+
+    function rawMechanicPrice(item) {
         var value = number(item.mechanicPrice);
         return value !== null && value >= 0 ? value : (number(item.salePrice) || 0);
+    }
+
+    function mechanicPrice(item) {
+        return applyEmployeeMarkup(rawMechanicPrice(item));
     }
 
     function compareArabic(a, b) {
@@ -499,7 +646,7 @@
         var summary = $('searchSummary'), term = String(searchTerm || '').trim();
         if (!summary) return;
         if (!term) { summary.hidden = true; summary.textContent = ''; return; }
-        var filterNames = { all: 'كل المنتجات', available: 'المتوفر', expired: 'المنتهية' }, filterName = filterNames[productFilter] || filterNames.available;
+        var filterName = 'كل المنتجات';
         var highlightedTerm = '<span class="search-summary-term">"' + highlightMatches(term, term) + '"</span>';
         summary.hidden = false;
         summary.innerHTML = visibleCount
@@ -510,28 +657,41 @@
     }
 
     function renderProducts() {
+        if (!employeePricesReady) {
+            $('employeePricesLoading').hidden = false;
+            $('productsGrid').hidden = true;
+            $('productsEmpty').hidden = true;
+            $('searchSummary').hidden = true;
+            return;
+        }
+        $('employeePricesLoading').hidden = true;
+        $('productsGrid').hidden = false;
         var searchTerm = $('productSearch').value, visible = filterAndSortProducts(searchTerm);
         updateProductFilterCounts();
         updateSearchSummary(searchTerm, visible.length);
         $('productsEmpty').hidden = visible.length !== 0;
         var visibleIds = new Set(visible.map(function (item) { return item.id; }));
         productElements.forEach(function (element, id) { if (!visibleIds.has(id)) element.remove(); });
-        visible.forEach(function (item) {
-            var stock = number(item.quantity) || 0, categoryName = productCategoryName(item), signature = JSON.stringify([item.name, categoryName, stock, item.salePrice, mechanicPrice(item), currency.secondaryCurrencySymbol, currency.exchangeRate, item.location, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
+        var priceOrdered = visible.slice().sort(function (a, b) { return (applyEmployeeMarkup(Number(a.salePrice) || 0)) - (applyEmployeeMarkup(Number(b.salePrice) || 0)); });
+        visible.forEach(function (item, index) {
+            var baseEmployeePrice = applyEmployeeMarkup(item.salePrice), mechanicEmployeePrice = mechanicPrice(item), signature = JSON.stringify([item.name, baseEmployeePrice, mechanicEmployeePrice, currency.secondaryCurrencySymbol, currency.exchangeRate, $('productSearch').value, Array.isArray(item.images) ? item.images.map(function (img) { return img && img.url ? img.url : ''; }).join('|') : '']);
             var element = productElements.get(item.id);
             if (!element) { element = document.createElement('article'); element.className = 'product-card'; element.dataset.productId = item.id; productElements.set(item.id, element); }
-            element.classList.toggle('expired-product', stock <= 0);
+            element.dataset.productNumber = String(index + 1);
             if (element.dataset.signature !== signature) {
                 var productImages = Array.isArray(item.images) ? item.images.filter(function (img) { return img && typeof img.url === 'string' && img.url.trim(); }) : [];
                 var primaryImage = productImages.find(function (img) { return img.isPrimary; }) || productImages[0] || null;
+                var priceIndex = priceOrdered.findIndex(function (entry) { return entry.id === item.id; });
+                var priceRank = priceOrdered.length > 1 ? priceIndex / (priceOrdered.length - 1) : 0.5;
+                var fakeDisplay = fakeDisplayData(item, priceRank);
                 element.dataset.signature = signature;
                 element.innerHTML =
                 (primaryImage ? '<button class="product-thumb" type="button" data-image-view="' + esc(item.id) + '" aria-label="عرض صورة المنتج"><img src="' + esc(primaryImage.url) + '" alt="' + esc(item.name || 'صورة المنتج') + '"></button>' : '<div class="product-thumb placeholder" aria-hidden="true"><span>XM</span></div>') +
-                '<div class="product-title-group"><h2 class="product-name">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2><p class="product-category">' + esc(categoryName) + '</p></div>' +
-                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(stock) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong class="location-value">' + esc(item.location && String(item.location).trim() ? item.location : 'غير محدد') + '</strong>)</span></p>' +
+                '<div class="product-title-group"><h2 class="product-name">' + highlightMatches(item.name || 'منتج', $('productSearch').value) + '</h2></div>' +
+                '<p class="stock"><span><span class="stock-label">المتوفر:</span> (<strong>' + money(fakeDisplay.quantity) + '</strong>)</span><span class="stock-divider">|</span><span><span class="location-label">مكان القطعة:</span> (<strong class="location-value">' + esc('رف ' + fakeDisplay.shelf) + '</strong>)</span></p>' +
                 '<div class="prices">' +
-                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(item.salePrice) + '" data-sell-mode="base" ' + (stock <= 0 ? 'disabled' : '') + '><span>زبون</span><strong>' + price(productSecondary(item.salePrice)) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
-                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicPrice(item)) + '" data-sell-mode="mechanic" ' + (stock <= 0 ? 'disabled' : '') + '><span>ميكانيكي</span><strong>' + price(productSecondary(mechanicPrice(item))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</strong></button>' +
+                '<button class="price-line price-action base-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(baseEmployeePrice) + '" data-sell-mode="base"><span>زبون</span><strong>' + price(productSecondary(baseEmployeePrice)) + '</strong></button>' +
+                '<button class="price-line price-action mechanic-price" type="button" data-sell-item="' + esc(item.id) + '" data-sell-price="' + esc(mechanicEmployeePrice) + '" data-sell-mode="mechanic"><span>ميكانيكي</span><strong>' + price(productSecondary(mechanicEmployeePrice)) + '</strong></button>' +
                 '</div>';
             }
             $('productsGrid').appendChild(element);
@@ -559,36 +719,18 @@
     }
 
     function updateQuickQuantityButtons() {
-        var available = selectedItem ? Number(selectedItem.quantity) || 0 : 0;
-        var maxQuick = Math.min(10, available || 0);
         document.querySelectorAll('[data-quick-quantity]').forEach(function (button) {
             var buttonValue = Number(button.dataset.quickQuantity);
-            var visible = Number.isFinite(buttonValue) && buttonValue > 0 && buttonValue <= maxQuick;
+            var visible = Number.isFinite(buttonValue) && buttonValue > 0 && buttonValue <= 10;
             button.hidden = !visible;
-            button.disabled = !visible;
-            button.title = visible ? 'بيع بسرعة ' + buttonValue : 'غير متاح في المخزون الحالي';
-            button.setAttribute('aria-disabled', visible ? 'false' : 'true');
+            button.disabled = false;
+            button.title = 'بيع بسرعة ' + buttonValue;
+            button.setAttribute('aria-disabled', 'false');
             if (!visible) button.classList.remove('selected');
         });
     }
 
-    function updateAvailableStock(item) {
-        var available = item ? number(item.quantity) : null;
-        $('availableStock').textContent = available === null ? '' : 'المتوفر في المخزون: ' + money(available);
-        updateQuickQuantityButtons();
-    }
-
     function updateQuantityWarning() {
-        var quantity = number($('saleQuantity').value);
-        var available = selectedItem ? number(selectedItem.quantity) : null;
-        if (editingSale && available !== null) available += number(editingSale.quantity) || 0;
-        var warning = $('quantityWarning');
-        if (!warning || quantity === null || available === null || quantity <= available) {
-            if (warning) { warning.hidden = true; warning.textContent = ''; }
-            return;
-        }
-        warning.textContent = 'الكمية المطلوبة أكبر من المتوفر في المخزون (' + money(available) + ').';
-        warning.hidden = false;
     }
 
     function updateSalePriceGuide(forceAutomatic) {
@@ -599,14 +741,14 @@
         }
         var total = number($('salePrice').value) || 0;
         var unit = quantity > 0 ? total / quantity : 0;
-        $('saleUnitPrice').value = price(unit) + ' ' + currency.secondaryCurrencySymbol;
-        $('calculatedTotal').textContent = 'الإجمالي: ' + price(total) + ' ' + currency.secondaryCurrencySymbol;
+        $('saleUnitPrice').value = price(unit);
+        $('calculatedTotal').textContent = 'الإجمالي: ' + price(total);
         updateQuickQuantityState();
         updateQuantityWarning();
     }
 
     function getPriceWarning(unitPricePrimary, item) {
-        var lowReference = mechanicPrice(item), highReference = Number(item.salePrice) || 0;
+        var lowReference = applyEmployeeMarkup(rawMechanicPrice(item)), highReference = applyEmployeeMarkup(Number(item.salePrice) || 0);
         if (unitPricePrimary < lowReference && lowReference > 0) {
             var lowPercent = ((lowReference - unitPricePrimary) / lowReference) * 100;
             if (lowPercent > 15) return { level: 'danger', percent: lowPercent, direction: 'أقل', type: 'mechanic', reference: lowReference };
@@ -620,7 +762,7 @@
 
     function warningText(info) {
         var referenceName = info.type === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي';
-        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + price(productSecondary(info.reference)) + ' ' + currency.secondaryCurrencySymbol;
+        return (info.level === 'danger' ? '⚠ ' : 'ⓘ ') + 'سعر القطعة المحسوب ' + info.direction + ' من ' + referenceName + ' بنسبة ' + money(info.percent) + '%.' + ' السعر المرجعي: ' + price(productSecondary(info.reference));
     }
 
     function upsertSaleLocally(sale) {
@@ -674,14 +816,11 @@
             if (!entry || !entry.saleId || !entry.op) continue;
             try {
                 if (entry.op === 'create') {
-                    await db.collection('sales').doc(entry.saleId).set(sanitizeFirestoreData(entry.payload));
-                    await logMobileActivity('sell', entry.payload || { saleId: entry.saleId });
+                    await db.collection(EMPLOYEE_SALES_COLLECTION).doc(entry.saleId).set(sanitizeFirestoreData(entry.payload));
                 } else if (entry.op === 'update') {
-                    await db.collection('sales').doc(entry.saleId).set(sanitizeFirestoreData(entry.payload), { merge: true });
-                    await logMobileActivity('update', entry.payload || { saleId: entry.saleId });
+                    await db.collection(EMPLOYEE_SALES_COLLECTION).doc(entry.saleId).set(sanitizeFirestoreData(entry.payload), { merge: true });
                 } else if (entry.op === 'delete') {
-                    await db.collection('sales').doc(entry.saleId).delete();
-                    await logMobileActivity('cancel', entry.payload || { saleId: entry.saleId });
+                    await db.collection(EMPLOYEE_SALES_COLLECTION).doc(entry.saleId).delete();
                 }
             } catch (error) {
                 console.warn('Pending mobile sale redo failed', error);
@@ -725,9 +864,8 @@
         $('saleModal').classList.toggle('mechanic-price-mode', mode === 'mechanic');
         $('saleModalEyebrow').textContent = mode === 'mechanic' ? 'تسجيل بيع لميكانيكي' : 'تسجيل بيع';
         $('saleModalTitle').textContent = mode === 'mechanic' ? 'بيع منتج وفق سعر الميكانيكي' : 'بيع منتج وفق السعر الأساسي'; $('saleProductName').textContent = item.name || 'منتج';
-        updateAvailableStock(item);
-        $('saleQuantity').max = Number(item.quantity) || 0;
-        $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
+        $('saleQuantity').removeAttribute('max');
+        $('saleCurrencyLabel').textContent = '';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'تأكيد البيع';
         updateSalePriceGuide();
         openModal('saleModal');
@@ -739,22 +877,21 @@
         selectedItem = item; editingSale = sale; activeSaleMode = null; saleDefaultPrice = null; resetSaleForm();
         $('saleModal').classList.remove('base-price-mode', 'mechanic-price-mode');
         $('saleModalTitle').textContent = 'تعديل البيع'; $('saleProductName').textContent = sale.itemName || item.name || 'منتج';
-        updateAvailableStock(item);
-        $('saleQuantity').value = sale.quantity; $('saleQuantity').max = (Number(item.quantity) || 0) + (Number(sale.quantity) || 0);
+        $('saleQuantity').value = sale.quantity; $('saleQuantity').removeAttribute('max');
         $('salePrice').value = Number(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0)).toFixed(2));
         salePriceManuallyEdited = true;
-        $('saleCurrencyLabel').textContent = '(' + currency.secondaryCurrencySymbol + ')';
+        $('saleCurrencyLabel').textContent = '';
         $('saleForm').querySelector('button[type="submit"]').textContent = 'حفظ التعديل';
         updateSalePriceGuide();
         openModal('saleModal');
     }
 
     function historyQuery(startDate, endDate) {
-        return db.collection('sales').where('source', '==', SOURCE).where('timestamp', '>=', startDate.getTime()).where('timestamp', '<', endDate.getTime()).orderBy('timestamp', 'desc');
+        return db.collection(EMPLOYEE_SALES_COLLECTION).where('timestamp', '>=', startDate.getTime()).where('timestamp', '<', endDate.getTime()).orderBy('timestamp', 'desc');
     }
 
     function salesFromSnapshot(snap) {
-        return uniqueSales(snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); }));
+        return uniqueSales(snap.docs.map(function (doc) { return Object.assign({ saleId: doc.id }, doc.data()); }).filter(function (sale) { return sale && sale.source === SOURCE && sale.mockSale === true; }));
     }
 
     async function loadOlderSales() {
@@ -780,7 +917,7 @@
     function renderHistory() {
         try {
         Promise.resolve(refreshUserDisplayNameMap()).catch(function () {});
-        var ordered = (Array.isArray(sales) ? sales : []).slice().sort(function (a, b) { return timestampValue(b.timestamp) - timestampValue(a.timestamp); });
+        var ordered = (Array.isArray(sales) ? sales : []).filter(function (sale) { return sale && sale.source === SOURCE && sale.mockSale === true; }).slice().sort(function (a, b) { return timestampValue(b.timestamp) - timestampValue(a.timestamp); });
         var dayStats = {};
         ordered.forEach(function (sale) {
             var key = dayKey(sale.timestamp);
@@ -796,7 +933,7 @@
             var currentDay = dayKey(sale.timestamp);
             if (currentDay !== previousDay) {
                 dayNumber = dayStats[currentDay].count;
-                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong><span class="day-total">إجمالي مبيعات اليوم: ' + price(dayStats[currentDay].total) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></div>';
+                html += '<div class="history-day"><strong>' + esc(dayLabel(sale.timestamp)) + '</strong><span class="day-total">إجمالي مبيعات اليوم: ' + price(dayStats[currentDay].total) + '</span></div>';
                 previousDay = currentDay;
             }
             var warningBadge = sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? '<button type="button" class="warning-badge ' + esc(sale.priceWarningLevel) + '" data-warning-sale="' + esc(sale.saleId) + '" aria-label="عرض سبب التنبيه">!</button>' : '';
@@ -804,9 +941,9 @@
             var saleModeClass = sale.saleMode === 'base' ? ' sale-mode-base' : (sale.saleMode === 'mechanic' ? ' sale-mode-mechanic' : '');
             html += '<article class="sale-record' + saleModeClass + (sale.priceWarningLevel && sale.priceWarningLevel !== 'none' ? ' has-price-warning ' + esc(sale.priceWarningLevel) : '') + '"><div class="sale-number" aria-label="رقم العملية">' + dayNumber + '</div><h3>' + esc(sale.itemName || 'منتج') + warningBadge + '</h3>' +
                 '<div class="sale-meta"><span>' + esc(date(sale.timestamp)) + '</span><span>البائع: ' + esc(sellerLabel) + '</span><span>الكمية: ' + money(sale.quantity) + '</span></div>' +
-                '<p class="sale-total">سعر القطعة: <span class="sale-unit-value">' + price(secondary(sale.unitPrice)) + '</span> × الكمية: <span class="sale-quantity-value">' + money(sale.quantity) + '</span> = الإجمالي: <span class="sale-grand-total">' + price(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + ' ' + esc(currency.secondaryCurrencySymbol) + '</span></p>' +
-                '<div class="record-actions"><button type="button" data-edit-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
-                '<button type="button" class="cancel-sale" data-cancel-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
+                '<p class="sale-total">سعر القطعة: <span class="sale-unit-value">' + price(secondary(sale.unitPrice)) + '</span> × الكمية: <span class="sale-quantity-value">' + money(sale.quantity) + '</span> = الإجمالي: <span class="sale-grand-total">' + price(secondary((Number(sale.unitPrice) || 0) * (Number(sale.quantity) || 0))) + '</span></p>' +
+                '<div class="record-actions"><button type="button" data-edit-mock-sale="' + esc(sale.saleId) + '">تعديل الكمية/السعر</button>' +
+                '<button type="button" class="cancel-sale" data-cancel-mock-sale="' + esc(sale.saleId) + '">إلغاء البيع</button></div></article>';
             dayNumber -= 1;
         });
         if (!ordered.length) html = '<div class="empty-state">لا توجد عمليات بيع حتى الآن</div>';
@@ -886,76 +1023,48 @@
         var qtyInput = $('saleQuantity').value;
         var qty = Number(qtyInput);
         var enteredPrice = number($('salePrice').value);
-        var availableStock = Number(selectedItem ? selectedItem.quantity : 0) || 0;
-        var oldQty = editingSale ? Number(editingSale.quantity) || 0 : 0;
-        var maxAllowedQty = Math.max(0, availableStock + oldQty);
         var displayedPrice = enteredPrice === null || !Number.isFinite(qty) || qty <= 0 ? null : enteredPrice / qty;
-        if (!selectedItem || selectedItem.id === undefined || selectedItem.id === null || String(selectedItem.id).trim() === '' || !Number.isFinite(qty) || qty <= 0 || qty > maxAllowedQty || enteredPrice === null || enteredPrice < 0 || displayedPrice === null || displayedPrice < 0) {
-            showError('saleError', 'يرجى إدخال كمية صالحة في حدود المخزون المتاح');
+        if (!selectedItem || selectedItem.id === undefined || selectedItem.id === null || String(selectedItem.id).trim() === '' || !Number.isFinite(qty) || qty <= 0 || enteredPrice === null || enteredPrice < 0 || displayedPrice === null || displayedPrice < 0) {
+            showError('saleError', 'يرجى إدخال كمية وسعر صالحين');
             return;
         }
-        if (qty > availableStock + oldQty) { showError('saleError', 'الكمية المتوفرة غير كافية'); return; }
         var warning = getPriceWarning(primary(displayedPrice), selectedItem);
         if (warning.level !== 'none' && !unusualPriceApproved) { showPriceWarning(warning); return; }
         $('priceWarning').hidden = true;
         var button = $('saleForm').querySelector('button[type="submit"]'); button.disabled = true; showError('saleError', '');
         try {
             if (!editingSale) {
-                var allocations = selectedItem.purchaseBatches && selectedItem.purchaseBatches.length ? computeAllocations(selectedItem, qty) : null;
-                if (selectedItem.purchaseBatches && selectedItem.purchaseBatches.length && !allocations.length) throw new Error('الكمية المتوفرة غير كافية');
-                var stockResult = await changeStock(selectedItem, -qty, allocations);
                 var cost = Number(selectedItem.purchasePrice) || 0;
                 var currentSeller = getCurrentSellerInfo();
-                var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), sellerEmail: currentSeller.email, sellerName: currentSeller.name, user: currentSeller.email, saleCurrency: 'secondary', source: SOURCE, saleMode: activeSaleMode, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference };
+                var sale = { itemId: selectedItem.id, itemName: selectedItem.name, quantity: qty, unitPrice: primary(displayedPrice), totalAmount: primary(displayedPrice) * qty, profit: (primary(displayedPrice) - cost) * qty, purchasePriceAtTime: cost, timestamp: Date.now(), sellerEmail: currentSeller.email, sellerName: currentSeller.name, user: currentSeller.email, saleCurrency: 'secondary', source: SOURCE, mockSale: true, saleMode: activeSaleMode, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference };
                 sale.saleId = makeMobileSaleId();
-                if (allocations) sale.purchaseBatchAllocations = allocations;
                 try {
-                    await db.collection('sales').doc(sale.saleId).set(sanitizeFirestoreData(sale));
-                    await updateStats(sale.profit);
-                    await logMobileActivity('sell', sale);
-                    selectedItem.quantity = stockResult.quantity; selectedItem.purchaseBatches = stockResult.purchaseBatches || selectedItem.purchaseBatches;
+                    await db.collection(EMPLOYEE_SALES_COLLECTION).doc(sale.saleId).set(sanitizeFirestoreData(sale));
+                    employeeOperation('sale_create', { saleId: sale.saleId, itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity, unitPrice: sale.unitPrice, totalAmount: sale.totalAmount, saleMode: sale.saleMode });
                     upsertSaleLocally(sale); saveCache(); notify('تم تسجيل البيع بنجاح');
                 } catch (offlineCreateError) {
                     sale.pending = 'pending'; sale.syncStatus = 'pending';
                     queueMobileSaleOperation('create', sale);
+                    employeeOperation('sale_create', { saleId: sale.saleId, itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity, unitPrice: sale.unitPrice, totalAmount: sale.totalAmount, saleMode: sale.saleMode });
                     upsertSaleLocally(sale); saveCache(); notify('تم حفظ البيع محليًا وسيتم مزامنته عند عودة الإنترنت');
                     console.warn('Mobile sales offline create queued', offlineCreateError);
                 }
             } else {
-                var diff = qty - oldQty, allocations = editingSale.purchaseBatchAllocations ? JSON.parse(JSON.stringify(editingSale.purchaseBatchAllocations)) : [];
-                var extraAllocations = null;
-                if (diff > 0 && selectedItem.purchaseBatches && selectedItem.purchaseBatches.length) extraAllocations = computeAllocations(selectedItem, diff);
-                if (diff > 0 && selectedItem.purchaseBatches && selectedItem.purchaseBatches.length && !extraAllocations.length) throw new Error('الكمية المتوفرة غير كافية');
-                if (diff !== 0) {
-                    if (diff > 0) {
-                        var stockResult2 = await changeStock(selectedItem, -diff, extraAllocations);
-                        selectedItem.quantity = stockResult2.quantity; selectedItem.purchaseBatches = stockResult2.purchaseBatches || selectedItem.purchaseBatches;
-                        allocations = allocations.concat(extraAllocations);
-                    } else if (editingSale.purchaseBatchAllocations && editingSale.purchaseBatchAllocations.length && selectedItem.purchaseBatches && selectedItem.purchaseBatches.length) {
-                        var restoreAllocations = [], left = -diff;
-                        while (left > 0 && allocations.length) {
-                            var last = allocations[allocations.length - 1], take = Math.min(Number(last.quantity) || 0, left);
-                            restoreAllocations.push(Object.assign({}, last, { quantity: take })); last.quantity -= take; left -= take;
-                            if (last.quantity <= 0) allocations.pop();
-                        }
-                        if (left > 0) throw new Error('تعذر استعادة كمية البيع');
-                        var restored = await restoreBatches(selectedItem.id, restoreAllocations);
-                        selectedItem.quantity = restored.quantity; selectedItem.purchaseBatches = restored.purchaseBatches || selectedItem.purchaseBatches;
-                    } else {
-                        var simpleRestore = await changeStock(selectedItem, -diff, null);
-                        selectedItem.quantity = simpleRestore.quantity;
-                    }
-                }
-                var newPrice = primary(displayedPrice), newProfit = (newPrice - (Number(editingSale.purchasePriceAtTime) || 0)) * qty, profitDiff = newProfit - (Number(editingSale.profit) || 0);
+                var newPrice = primary(displayedPrice), newProfit = (newPrice - (Number(editingSale.purchasePriceAtTime) || 0)) * qty;
+                var oldQuantity = Number(editingSale.quantity) || 0;
+                var oldUnitPrice = Number(editingSale.unitPrice) || 0;
                 var seller = getCurrentSellerInfo();
-                var updated = Object.assign({}, editingSale, { quantity: qty, unitPrice: newPrice, totalAmount: newPrice * qty, profit: newProfit, sellerEmail: editingSale.sellerEmail || seller.email, sellerName: editingSale.sellerName || seller.name, user: editingSale.user || seller.email, saleCurrency: 'secondary', purchaseBatchAllocations: allocations, updatedAt: Date.now(), source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference });
+                var updated = Object.assign({}, editingSale, { quantity: qty, unitPrice: newPrice, totalAmount: newPrice * qty, profit: newProfit, sellerEmail: editingSale.sellerEmail || seller.email, sellerName: editingSale.sellerName || seller.name, user: editingSale.user || seller.email, saleCurrency: 'secondary', mockSale: true, updatedAt: Date.now(), source: SOURCE, priceType: warning.type, priceWarningLevel: warning.level, priceWarningPercent: warning.percent, priceWarningDirection: warning.direction, priceWarningReference: warning.reference });
                 try {
-                    await db.collection('sales').doc(editingSale.saleId).set(sanitizeFirestoreData(updated));
-                    await updateStats(profitDiff); await logMobileActivity('update', updated);
+                    await db.collection(EMPLOYEE_SALES_COLLECTION).doc(editingSale.saleId).set(sanitizeFirestoreData(updated));
+                    if (Math.abs(newPrice - oldUnitPrice) > 0.0001) employeeOperation('sale_update_price', { saleId: updated.saleId, itemId: updated.itemId, itemName: updated.itemName, oldUnitPrice: oldUnitPrice, unitPrice: updated.unitPrice, totalAmount: updated.totalAmount });
+                    if (Math.abs(qty - oldQuantity) > 0.0001) employeeOperation('sale_update_quantity', { saleId: updated.saleId, itemId: updated.itemId, itemName: updated.itemName, oldQuantity: oldQuantity, quantity: updated.quantity, unitPrice: updated.unitPrice, totalAmount: updated.totalAmount });
                     sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم تعديل البيع');
                 } catch (offlineUpdateError) {
                     updated.pending = 'pending'; updated.syncStatus = 'pending';
                     queueMobileSaleOperation('update', updated);
+                    if (Math.abs(newPrice - oldUnitPrice) > 0.0001) employeeOperation('sale_update_price', { saleId: updated.saleId, itemId: updated.itemId, itemName: updated.itemName, oldUnitPrice: oldUnitPrice, unitPrice: updated.unitPrice, totalAmount: updated.totalAmount });
+                    if (Math.abs(qty - oldQuantity) > 0.0001) employeeOperation('sale_update_quantity', { saleId: updated.saleId, itemId: updated.itemId, itemName: updated.itemName, oldQuantity: oldQuantity, quantity: updated.quantity, unitPrice: updated.unitPrice, totalAmount: updated.totalAmount });
                     sales = sales.map(function (entry) { return entry.saleId === updated.saleId ? updated : entry; }); saveCache(); notify('تم حفظ التعديل محليًا وسيتم مزامنته عند عودة الإنترنت');
                     console.warn('Mobile sales offline update queued', offlineUpdateError);
                 }
@@ -1008,36 +1117,33 @@
 
     async function cancelSale(saleId) {
         var sale = sales.find(function (entry) { return entry && entry.saleId === saleId; });
-        if (!sale || sale.source !== SOURCE || !window.confirm('إلغاء عملية البيع؟')) return;
-        if (!sale.itemId) { notify('معرف المنتج غير موجود في سجل البيع'); return; }
-        var item = (Array.isArray(items) ? items : []).find(function (entry) { return entry && entry.id === sale.itemId; });
-        if (!item) {
-            try {
-                var itemDoc = await db.collection('items').doc(sale.itemId).get({ source: navigator.onLine ? 'default' : 'cache' });
-                if (itemDoc.exists) item = Object.assign({ id: itemDoc.id }, itemDoc.data());
-            } catch (error) { notify('تعذر الوصول إلى المنتج المرتبط بالبيع'); return; }
-        }
-        if (!item || !item.id) { notify('المنتج المرتبط بعملية البيع غير موجود'); return; }
+        if (!sale || sale.source !== SOURCE || sale.mockSale !== true || !window.confirm('إلغاء عملية البيع؟')) return;
         try {
-            var result = sale.purchaseBatchAllocations && sale.purchaseBatchAllocations.length ? await restoreBatches(item.id, sale.purchaseBatchAllocations) : await updateQuantity(item.id, sale.quantity);
-            if (result === null || result === undefined || (typeof result === 'object' && result.quantity === undefined)) { notify('تعذر استرجاع كمية المنتج المرتبط'); return; }
-            try {
-                await db.collection('sales').doc(saleId).delete(); await updateStats(-(Number(sale.profit) || 0)); await logMobileActivity('cancel', sale);
-                item.quantity = typeof result === 'number' ? result : result.quantity;
-                if (typeof result === 'object' && result.purchaseBatches) item.purchaseBatches = result.purchaseBatches;
-                var localItemIndex = items.findIndex(function (entry) { return entry && entry.id === item.id; });
-                if (localItemIndex >= 0) items[localItemIndex] = item;
-                else items.push(item);
-                sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; }); saveCache();
-                renderProducts(); renderHistory(); notify('تم إلغاء البيع وإعادة الكمية للمخزون');
-            } catch (syncCancelError) {
-                sale.pending = 'pending'; sale.syncStatus = 'pending';
-                queueMobileSaleOperation('delete', sale);
-                sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; }); saveCache();
-                renderProducts(); renderHistory(); notify('تم حفظ إلغاء البيع محليًا وسيتم مزامنته عند عودة الإنترنت');
-                console.warn('Mobile sales cancel queued', syncCancelError);
-            }
-        } catch (error) { notify(error.message || 'تعذر إلغاء البيع'); }
+            await db.collection(EMPLOYEE_SALES_COLLECTION).doc(saleId).delete();
+            employeeOperation('sale_cancel', { saleId: saleId, itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity });
+            sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; });
+            saveCache();
+            renderHistory();
+            notify('تم إلغاء البيع');
+        } catch (error) {
+            sale.pending = 'pending';
+            sale.syncStatus = 'pending';
+            queueMobileSaleOperation('delete', sale);
+            employeeOperation('sale_cancel', { saleId: saleId, itemId: sale.itemId, itemName: sale.itemName, quantity: sale.quantity });
+            sales = sales.filter(function (entry) { return !entry || entry.saleId !== saleId; });
+            saveCache();
+            renderHistory();
+            notify('تم إلغاء البيع محليًا');
+        }
+    }
+
+    function applyEmployeePriceSettings(data) {
+        var nextMarkup = data && Number.isFinite(Number(data.markupPercent)) ? Number(data.markupPercent) : 0;
+        nextMarkup = Math.max(0, Math.min(nextMarkup, 500));
+        var changed = !employeePricesReady || nextMarkup !== employeeMarkupPercent;
+        employeeMarkupPercent = nextMarkup;
+        employeePricesReady = true;
+        if (changed) { renderProducts(); saveCache(); }
     }
 
     async function loadData() {
@@ -1055,10 +1161,12 @@
         try {
             var cacheRead = Promise.all([
                 db.collection('items').get({ source: 'cache' }),
-                db.collection('currencySettings').doc('settings').get({ source: 'cache' })
+                db.collection('currencySettings').doc('settings').get({ source: 'cache' }),
+                db.collection('systemSettings').doc('employeePricing').get({ source: 'cache' })
             ]).then(function (result) {
                 items = result[0].docs.map(function (doc) { return Object.assign({ id: doc.id }, doc.data()); });
                 if (result[1].exists) currency = Object.assign(currency, result[1].data());
+                if (result[2].exists) applyEmployeePriceSettings(result[2].data());
                 renderProducts(); renderHistory(); saveCache();
                 restoreUiState();
             });
@@ -1102,6 +1210,13 @@
         db.collection('currencySettings').doc('settings').onSnapshot(function (doc) {
             if (doc.exists) { var nextCurrency = Object.assign({}, currency, doc.data()); if (JSON.stringify(nextCurrency) !== JSON.stringify(currency)) { currency = nextCurrency; renderProducts(); renderHistory(); saveCache(); } }
             lastSyncAt = Date.now();
+        });
+        db.collection('systemSettings').doc('employeePricing').onSnapshot(function (doc) {
+            applyEmployeePriceSettings(doc.exists ? doc.data() : { markupPercent: 0 });
+            lastSyncAt = Date.now();
+        }, function (error) {
+            console.error('Employee price settings sync failed:', error);
+            if (!employeePricesReady) notify('تعذر تحميل إعدادات أسعار الموظف');
         });
     }
 
@@ -1154,6 +1269,7 @@
         var query = $('productSearch').value.trim();
         if (!query || searchDraftSaved) return;
         clearTimeout(searchSaveTimer);
+        employeeOperation('search', { query: query });
         recordEmployeeSearch(query);
     }
 
@@ -1205,28 +1321,8 @@
         if (event.deltaY) commitCurrentSearch();
     }, { passive: true });
     window.addEventListener('touchmove', function () { commitCurrentSearch(); }, { passive: true });
-    $('productFilters').addEventListener('click', function (event) {
-        var button = event.target.closest('[data-product-filter]');
-        if (!button) return;
-        productFilter = button.dataset.productFilter || 'available';
-        renderProducts();
-        saveUiState();
-        scrollToProductsTop();
-    });
-    $('categoryFilters').addEventListener('click', function (event) {
-        var button = event.target.closest('[data-category-filter]');
-        if (!button) return;
-        activeCategoryId = button.dataset.categoryFilter || '';
-        renderProducts();
-        saveUiState();
-        scrollToProductsTop();
-    });
     $('saleQuantity').addEventListener('input', function () {
         var quantity = number($('saleQuantity').value);
-        var available = selectedItem ? Number(selectedItem.quantity) || 0 : 0;
-        if (quantity !== null && available > 0 && quantity > available) {
-            $('saleQuantity').value = available;
-        }
         if (quantity !== null && quantity <= 0) {
             $('saleQuantity').value = 0.01;
         }
@@ -1238,22 +1334,16 @@
         var button = event.target.closest('[data-quick-quantity]');
         if (!button || button.disabled || button.hidden) return;
         var quickValue = Number(button.dataset.quickQuantity);
-        var stock = selectedItem ? Number(selectedItem.quantity) || 0 : 0;
-        if (!Number.isFinite(quickValue) || quickValue <= 0 || quickValue > Math.min(10, stock) || quickValue > stock) return;
+        if (!Number.isFinite(quickValue) || quickValue <= 0) return;
         $('saleQuantity').value = quickValue;
         $('saleQuantity').dispatchEvent(new Event('input', { bubbles: true }));
     });
     $('backFromWarning').addEventListener('click', function () { unusualPriceApproved = false; $('priceWarning').hidden = true; });
     $('confirmUnusualPrice').addEventListener('click', function () { unusualPriceApproved = true; $('priceWarning').hidden = true; $('saleForm').requestSubmit(); });
-    window.addEventListener('scroll', function () {
-        try { localStorage.setItem(CACHE_KEY + ':scrollY', String(window.scrollY)); } catch (error) {}
-        scheduleUiStateSave();
-        updateCustomScrollbar();
-    }, { passive: true });
-    $('historyButton').addEventListener('click', function () { renderHistory(); openModal('historyModal'); });
+    $('historyButton').addEventListener('click', function () { employeeOperation('history_open', {}); renderHistory(); openModal('historyModal'); });
     $('productsGrid').addEventListener('click', function (event) {
         var button = event.target.closest('[data-sell-item]');
-        if (button && !button.disabled) {
+        if (button) {
             var item = items.find(function (entry) { return entry.id === button.dataset.sellItem; });
             if (item) openNewSale(item, number(button.dataset.sellPrice), button.dataset.sellMode);
             return;
@@ -1273,20 +1363,21 @@
             return;
         }
     });
-    $('salesHistory').addEventListener('click', function (event) { var edit = event.target.closest('[data-edit-sale]'), cancel = event.target.closest('[data-cancel-sale]'), warningButton = event.target.closest('[data-warning-sale]'); if (edit) { var sale = sales.find(function (entry) { return entry.saleId === edit.dataset.editSale; }); if (sale) { closeModal('historyModal'); openEditSale(sale); } } if (cancel) cancelSale(cancel.dataset.cancelSale); if (warningButton) { var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; }); if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.'); } });
-    $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') loadOlderSales(); });
-    $('backToTop').addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
-    $('backToBottom').addEventListener('click', function () {
-        var products = document.querySelectorAll('.product-card');
-        var lastProduct = products[products.length - 1];
-        var target = lastProduct ? lastProduct.getBoundingClientRect().bottom + window.scrollY - window.innerHeight + 16 : document.documentElement.scrollHeight - window.innerHeight;
-        window.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    $('salesHistory').addEventListener('click', function (event) {
+        var warningButton = event.target.closest('[data-warning-sale]');
+        if (warningButton) {
+            var warningSale = sales.find(function (entry) { return entry.saleId === warningButton.dataset.warningSale; });
+            if (warningSale) window.alert('سبب التنبيه: سعر القطعة المحسوب ' + (warningSale.priceWarningDirection || '') + ' من ' + (warningSale.priceType === 'mechanic' ? 'سعر الجملة' : 'سعر البيع الأساسي') + ' بنسبة ' + money(warningSale.priceWarningPercent || 0) + '%.');
+        }
+        var editButton = event.target.closest('[data-edit-mock-sale]');
+        if (editButton) {
+            var mockSaleToEdit = sales.find(function (entry) { return entry.saleId === editButton.dataset.editMockSale; });
+            if (mockSaleToEdit) { closeModal('historyModal'); openEditSale(mockSaleToEdit); }
+        }
+        var cancelButton = event.target.closest('[data-cancel-mock-sale]');
+        if (cancelButton) cancelSale(cancelButton.dataset.cancelMockSale);
     });
-    window.addEventListener('scroll', function () {
-        var showNavigation = window.scrollY > 220;
-        $('backToTop').classList.toggle('show', showNavigation);
-        $('backToBottom').classList.toggle('show', showNavigation);
-    }, { passive: true });
+    $('salesHistory').addEventListener('click', function (event) { if (event.target.id === 'loadMoreSales') loadOlderSales(); });
     window.addEventListener('resize', updateCustomScrollbar);
     setupCustomScrollbar();
     updateCustomScrollbar();
@@ -1311,6 +1402,7 @@
     document.addEventListener('click', scheduleUiStateSave);
     document.addEventListener('visibilitychange', function () {
         if (document.hidden) saveUiState();
+        else startEmployeeSession();
     });
     window.addEventListener('pagehide', saveUiState);
 
@@ -1319,8 +1411,10 @@
         authStateResolved = true;
 
         if (currentUser) {
+            if (await checkEmployeeDeviceBlocked()) return;
             $('loginScreen').hidden = true;
             $('appShell').hidden = false;
+            startEmployeeSession();
             if (!authUiInitialized || appliedAuthUid !== currentUser.uid) {
                 authUiInitialized = true;
                 appliedAuthUid = currentUser.uid;
